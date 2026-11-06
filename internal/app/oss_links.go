@@ -38,7 +38,7 @@ func objectLinkFieldSpecs() []fieldSpec {
 
 func (a *App) objectLinkFormHelp(c *ui.Context, f *form) {
 	p := theme.Colors(a.dark)
-	ui.Text(c, "公开对象复制普通 HTTPS 链接；私有对象或公共访问受限时使用签名链接。有效期默认 300 秒，可设为 1–604800 秒；临时凭据到期可能使链接提前失效。").FillWidth().FontSize(11).TextColor(p.Muted)
+	ui.Text(c, "确认公开的对象使用普通 HTTPS 链接；私有、无法确认权限或公共访问受限时使用签名链接。有效期默认 300 秒，可设为 1–604800 秒；临时凭据到期可能使链接提前失效。").FillWidth().FontSize(11).TextColor(p.Muted)
 	ui.Text(c, "访问仍受账号权限和 Bucket 策略限制。OSS 路径仅用于定位对象。").FillWidth().FontSize(11).TextColor(p.Muted)
 	if ui.Button(c, "复制 OSS 路径").Radius(999).Disabled(a.busy > 0).Clicked() {
 		a.copyObjectPath(*f)

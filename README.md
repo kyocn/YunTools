@@ -10,7 +10,7 @@ Go + MyGo 原生桌面云管理工具。首期支持阿里云，多账号加密�
 | --- | --- | --- |
 | macOS Apple Silicon | `dist/darwin-arm64/YunTools.app` | 构建通过，已启动检查原生窗口 |
 | Windows x64 | `dist/windows-amd64/YunTools.exe` | 构建通过，未在 Windows 运行 |
-| Linux x64 | `dist/linux-amd64/yuntools_0.2.2_amd64.deb` 或同目录 `.tar.gz` | 构建通过，未在 Linux 运行 |
+| Linux x64 | `dist/linux-amd64/yuntools_0.2.3_amd64.deb` 或同目录 `.tar.gz` | 构建通过，未在 Linux 运行 |
 
 源码运行需要 Go 1.27.3（Go 的自动工具链可下载），不需要 Node.js 或 cgo：
 

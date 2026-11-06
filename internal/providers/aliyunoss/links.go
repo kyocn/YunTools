@@ -23,27 +23,32 @@ func (c *Client) ObjectLink(ctx context.Context, bucket, key string, expiry time
 	if bucket == "" || key == "" {
 		return cloud.ObjectLink{}, errors.New("请选择要复制链接的对象")
 	}
-	object, err := c.sdk.GetObjectAcl(ctx, &oss.GetObjectAclRequest{Bucket: &bucket, Key: &key})
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return cloud.ObjectLink{}, err
 	}
-	acl := value(object.ACL)
+	// ACL discovery only decides whether a signature can be omitted. Failed or
+	// unrecognized discovery must not prevent local signing with the credentials.
+	acl := ""
+	object, err := c.sdk.GetObjectAcl(ctx, &oss.GetObjectAclRequest{Bucket: &bucket, Key: &key})
+	if err == nil && object != nil {
+		acl = value(object.ACL)
+	}
 	if acl == "default" {
+		acl = ""
 		b, err := c.sdk.GetBucketAcl(ctx, &oss.GetBucketAclRequest{Bucket: &bucket})
-		if err != nil {
-			return cloud.ObjectLink{}, err
+		if err == nil && b != nil {
+			acl = value(b.ACL)
 		}
-		acl = value(b.ACL)
 	}
 	public := false
+	reason := ""
 	switch acl {
 	case "public-read", "public-read-write":
 		public = true
 	case "private":
 	default:
-		return cloud.ObjectLink{}, errors.New("OSS 返回了无法识别的访问权限，请重试")
+		reason = "无法确认对象的公开权限，已使用签名链接"
 	}
-	reason := ""
 	if public {
 		public, reason = c.publicAccessAllowed(ctx, bucket)
 	}

@@ -143,7 +143,9 @@ func (a *App) selectedKeys() []string {
 	return keys
 }
 func (a *App) requestDelete() {
-	keys := a.selectedKeys()
+	a.requestDeleteKeys(a.selectedKeys())
+}
+func (a *App) requestDeleteKeys(keys []string) {
 	if len(keys) == 0 {
 		return
 	}
@@ -154,9 +156,13 @@ func (a *App) requestDelete() {
 	}
 	bucket := a.bucket
 	// Expand only directory entries, before confirmation, to freeze the exact manifest.
+	selected := map[string]bool{}
+	for _, key := range keys {
+		selected[key] = true
+	}
 	dirs := map[string]bool{}
 	for _, o := range a.objects {
-		if o.IsDir && a.selected[o.Key] {
+		if o.IsDir && selected[o.Key] {
 			dirs[o.Key] = true
 		}
 	}

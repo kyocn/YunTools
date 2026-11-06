@@ -257,11 +257,11 @@ func (m *Manager) HasActive(account string) bool {
 func (m *Manager) Remove(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.cancels[id] != nil {
-		return errors.New("请先暂停任务")
-	}
 	for i, j := range m.jobs {
 		if j.ID == id {
+			if m.cancels[id] != nil || (j.State != Done && j.State != Failed) {
+				return errors.New("只能删除已完成或失败的任务记录；进行中和已暂停任务将保留")
+			}
 			before := append([]Job(nil), m.jobs...)
 			m.jobs = append(m.jobs[:i], m.jobs[i+1:]...)
 			if e := m.save(); e != nil {
@@ -273,6 +273,32 @@ func (m *Manager) Remove(id string) error {
 	}
 	return cloud.ErrNotFound
 }
+
+// ClearFinished removes completed and failed records, retaining resumable work.
+// The mutex covers both the state check and journal write so that a concurrent
+// Resume cannot lose its running job. Failed writes leave memory unchanged.
+func (m *Manager) ClearFinished() (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	before := m.jobs
+	kept := make([]Job, 0, len(before))
+	for _, j := range before {
+		if m.cancels[j.ID] != nil || (j.State != Done && j.State != Failed) {
+			kept = append(kept, j)
+		}
+	}
+	removed := len(before) - len(kept)
+	if removed == 0 {
+		return 0, nil
+	}
+	m.jobs = kept
+	if err := m.save(); err != nil {
+		m.jobs = before
+		return 0, err
+	}
+	return removed, nil
+}
+
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	m.closed = true

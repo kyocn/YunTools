@@ -78,7 +78,7 @@ func ossDataRow(c *ui.Context, key string, fn func()) {
 }
 func (a *App) bucketTable(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	widths := []float32{0, 110, 85, 152, 40}
+	widths := []float32{0, 110, 85, 152}
 	filtered := make([]cloud.Bucket, 0, len(a.buckets))
 	for _, b := range cloud.NewestFirst(a.buckets, func(b cloud.Bucket) time.Time { return b.Created }) {
 		if matches(a.search, b.Name, b.Region) {
@@ -87,7 +87,7 @@ func (a *App) bucketTable(c *ui.Context) {
 	}
 	filter := a.accountID + "\x00" + a.search
 	start, end := a.pageRange("oss-buckets", filter, len(filtered))
-	ossTable(c, widths, []string{"存储空间", "地域", "存储类型", "创建时间（北京时间）", "操作"}, 18, func() {
+	ossTable(c, widths, []string{"存储空间", "地域", "存储类型", "创建时间（北京时间）"}, 18, func() {
 		for _, b := range filtered[start:end] {
 			b := b
 			ossDataRow(c, b.Name, func() {
@@ -102,9 +102,6 @@ func (a *App) bucketTable(c *ui.Context) {
 				ossCell(c, widths[1]).Children(func() { ui.Text(c, b.Region).FontSize(12).TextColor(p.Muted) })
 				ossCell(c, widths[2]).Children(func() { ui.Text(c, b.StorageClass).FontSize(12).TextColor(p.Muted) })
 				ossCell(c, widths[3]).Children(func() { ui.Text(c, formatTimestamp(b.Created)).FontSize(12).TextColor(p.Muted) })
-				ossCell(c, widths[4]).Children(func() {
-					iconButton(c, "删除 Bucket "+b.Name, "delete-bin-line", false, func() { a.deleteBucket(b.Name) })
-				})
 			})
 		}
 	})
@@ -112,8 +109,8 @@ func (a *App) bucketTable(c *ui.Context) {
 }
 func (a *App) objectTable(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	widths := []float32{0, 96, 172, 132}
-	ossTable(c, widths, []string{"对象名称", "大小", "最后修改（北京时间）", "操作"}, 48, func() {
+	widths := []float32{0, 76, 148, 108, 40}
+	ossTable(c, widths, []string{"对象名称", "大小", "最后修改（北京时间）", "操作", "删除"}, 48, func() {
 		for _, o := range a.objects {
 			o := o
 			ossDataRow(c, o.Key, func() {
@@ -151,6 +148,9 @@ func (a *App) objectTable(c *ui.Context) {
 							a.newForm("move", "移动 / 重命名对象", map[string]string{"source": o.Key, "destination": o.Key})
 						})
 					}
+				})
+				ossCell(c, widths[4]).Children(func() {
+					iconButton(c, "删除对象 "+o.Key, "delete-bin-line", a.busy > 0, func() { a.requestDeleteKeys([]string{o.Key}) })
 				})
 			})
 		}

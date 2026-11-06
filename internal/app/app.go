@@ -76,6 +76,7 @@ type App struct {
 	showTasks                         bool
 	dialog                            *form
 	ruleDetail                        *ruleDetails
+	securityRuleTable                 ui.ListState
 	confirm                           *confirmation
 	bucket, prefix, nextToken, search string
 	buckets                           []cloud.Bucket

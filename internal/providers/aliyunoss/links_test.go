@@ -96,21 +96,66 @@ func TestObjectLinkCustomExpiry(t *testing.T) {
 		}
 	}
 }
-func TestObjectLinkFailsClosedWhenACLUnknown(t *testing.T) {
-	for _, acl := range []string{"", "unexpected"} {
-		c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprintf(w, `<AccessControlPolicy><AccessControlList><Grant>%s</Grant></AccessControlList></AccessControlPolicy>`, acl)
+
+// ACL discovery is optional: failure must never block locally signed downloads.
+func TestObjectLinkSignsWhenACLUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name, objectACL, bucketACL string
+		objectStatus, bucketStatus int
+	}{
+		{"object access denied", "", "", 403, 200},
+		{"bucket access denied", "default", "", 200, 403},
+		{"object unknown", "unexpected", "", 200, 200},
+		{"object empty", "", "", 200, 200},
+		{"bucket unknown", "default", "unexpected", 200, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || !r.URL.Query().Has("acl") {
+					t.Errorf("unexpected cloud request: %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(400)
+					return
+				}
+				acl, status := tc.objectACL, tc.objectStatus
+				if r.URL.Path == "/bucket/" {
+					acl, status = tc.bucketACL, tc.bucketStatus
+				}
+				w.WriteHeader(status)
+				if status == 403 {
+					fmt.Fprint(w, `<Error><Code>AccessDenied</Code><Message>You do not have read acl permission on this object.</Message></Error>`)
+					return
+				}
+				fmt.Fprintf(w, `<AccessControlPolicy><AccessControlList><Grant>%s</Grant></AccessControlList></AccessControlPolicy>`, acl)
+			})
+			for _, expiry := range []time.Duration{0, 600 * time.Second} {
+				link, err := c.ObjectLink(context.Background(), "bucket", "folder/中文 #?.txt", expiry)
+				if err != nil {
+					t.Fatal("ACL discovery blocked signing:", err)
+				}
+				u, err := url.Parse(link.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seconds := "300"
+				if expiry != 0 {
+					seconds = "600"
+				}
+				q := u.Query()
+				if !link.Signed || link.Reason == "" || q.Get("x-oss-signature") == "" || q.Get("x-oss-security-token") != "fixture-token" || q.Get("x-oss-expires") != seconds || u.Path != "/bucket/folder/中文 #?.txt" {
+					t.Fatal("missing signed fallback, expiry, credentials or exact object path")
+				}
+			}
 		})
-		if link, err := c.ObjectLink(context.Background(), "bucket", "key", 0); err == nil || link.URL != "" {
-			t.Fatal("unknown ACL produced access link")
-		}
 	}
-	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(403)
-		fmt.Fprint(w, `<Error><Code>AccessDenied</Code></Error>`)
-	})
-	if link, err := c.ObjectLink(context.Background(), "bucket", "key", 0); err == nil || link.URL != "" {
-		t.Fatal("failed ACL lookup produced access link")
+}
+
+func TestObjectLinkCancellationDoesNotProduceLink(t *testing.T) {
+	c := fixture(t, func(w http.ResponseWriter, r *http.Request) { t.Error("cancelled operation issued request") })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	link, err := c.ObjectLink(ctx, "bucket", "key", 0)
+	if err == nil || link.URL != "" {
+		t.Fatal("cancelled request produced a link")
 	}
 }
 

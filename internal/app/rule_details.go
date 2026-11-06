@@ -141,7 +141,7 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 	w, h := c.Size()
 	open := true
 	panel := ui.Modal(c.Key("rule-details"), &open, func() {
-		ui.Column(c).Width(min(1040, w-80)).Height(min(640, h-100)).Gap(12).Children(func() {
+		ui.Column(c).Width(min(1400, w-80)).Height(min(640, h-100)).Gap(12).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
 				title := "白名单详情"
 				if d.Target.Kind == "ecs" {
@@ -163,6 +163,9 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 					ui.Select(c, &d.Direction, []string{"全部方向", "入站", "出站"}).Width(120)
 				}
 				ui.TextInput(c, &d.Search).Placeholder("搜索地址、端口或描述…").Grow(1)
+				if d.Target.Kind == "ecs" && ui.Button(c, "重置列宽").Tooltip("恢复默认列宽与列顺序").Clicked() {
+					a.securityRuleTable = ui.ListState{}
+				}
 			})
 			if d.Loading {
 				ui.Text(c, "正在读取云端规则，请稍候…").FontSize(12).TextColor(p.Muted)
@@ -194,25 +197,12 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 			}
 			scope := ruleKey(d.Target) + "/" + d.Search + "/" + d.Direction
 			start, end := a.pageRange("security-rules", scope, len(filtered))
-			ui.Scroll(c).Grow(1).FillWidth().Background(p.BG).Border(1, p.Line).Radius(8).Children(func() {
-				ui.Column(c).FillWidth().Children(func() {
-					ruleColumns(c, true, []string{"方向", "策略", "协议", "端口", "来源 / 目标", "优先级", "创建时间", "描述 / 规则 ID"})
-					for _, r := range filtered[start:end] {
-						ports, protocol := r.Ports, strings.ToUpper(r.Protocol)
-						if ports == "-1/-1" {
-							ports = "全部"
-						}
-						if protocol == "ALL" {
-							protocol = "全部"
-						}
-						ruleColumns(c, false, []string{directionLabel(r.Direction), policyLabel(r.Policy), protocol, ports, rulePeer(r), nonEmpty(r.Priority), formatTimestamp(r.Created), nonEmpty(r.Description) + "\n" + nonEmpty(r.ID)})
-					}
-					if len(filtered) == 0 && !d.Loading && d.Error == "" {
-						ui.Text(c, "没有符合条件的规则。可清空搜索或切换方向。").Padding(20).FontSize(12).TextColor(p.Muted)
-					}
-				})
-			})
-			ui.Text(c, fmt.Sprintf("云端共 %d 条规则 · 创建时间倒序 · 北京时间 · 长文本可悬停查看完整内容", len(d.Rules))).FontSize(11).TextColor(p.Muted)
+			a.securityRulesTable(c, filtered[start:end], min(1400, w-80))
+			if len(filtered) == 0 && !d.Loading && d.Error == "" {
+				ui.Text(c, "没有符合条件的规则。可清空搜索或切换方向。").FontSize(12).TextColor(p.Muted)
+			}
+
+			ui.Text(c, fmt.Sprintf("云端共 %d 条规则 · 创建时间倒序 · 北京时间 · 拖动表头分隔线调宽，双击适应内容；超出宽度可横向滚动", len(d.Rules))).FontSize(11).TextColor(p.Muted)
 			a.pageFooter(c, "security-rules", scope, len(filtered))
 		})
 	})
@@ -220,37 +210,4 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 	if !open {
 		a.ruleDetail = nil
 	}
-}
-
-func ruleColumns(c *ui.Context, header bool, values []string) {
-	p := theme.Colors(c.Theme().Dark)
-	height := float32(54)
-	if header {
-		height = 34
-	}
-	ui.Row(c).FillWidth().Height(height).Padding(0, 12).Gap(10).AlignItems(ui.Center).Children(func() {
-		for i, value := range values {
-			widths := []float32{36, 36, 42, 58, 124, 38, 130, 0}
-			cell := ui.Column(c).MinWidth(0)
-			if widths[i] > 0 {
-				cell.Width(widths[i]).Shrink(0)
-			} else {
-				cell.Grow(1)
-			}
-			cell.Tooltip(value).Children(func() {
-				color := p.Text
-				if header {
-					color = p.Muted
-				} else if i == 1 && value == "允许" {
-					color = p.Green
-				} else if i == 1 && value == "拒绝" {
-					color = p.Red
-				}
-				for _, line := range strings.Split(value, "\n") {
-					ui.Text(c, line).FillWidth().SingleLine().FontSize(11).TextColor(color).Selectable()
-				}
-			})
-		}
-	})
-	ui.Box(c).FillWidth().Height(1).Background(p.Line.Alpha(.65))
 }
