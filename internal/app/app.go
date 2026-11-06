@@ -32,6 +32,7 @@ type Platform struct {
 	PickFiles  func() ([]string, error)
 	PickFolder func() (string, error)
 	SaveFile   func(string) (string, error)
+	CopyText   func(string) error
 	DataDir    string
 	Storage    func(cloud.Account) (cloud.ObjectStorage, error)
 	DNS        func(cloud.Account) (cloud.ChallengeDNS, error)
@@ -93,6 +94,7 @@ type App struct {
 	targetRules                       map[string][]string
 	whitelistFeedback                 map[cloud.Target]whitelistAutomaticFeedback
 	whitelistAutomaticRunning         bool
+	whitelistManualRunning            bool
 	certList                          []certificates.Certificate
 	autoBusy                          bool
 	autoNext                          time.Time

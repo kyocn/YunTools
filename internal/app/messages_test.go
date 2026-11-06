@@ -146,3 +146,31 @@ func TestWhitelistResultsUseErrorBannerForAnyFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedWhitelistErrorsExplainRecoveryAndKeepAction(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"managed whitelist ownership scope changed or journal is invalid; inspect the existing configuration", "本地受管白名单记录"},
+		{"managed whitelist ownership journal is invalid; refusing cloud changes", "停止同步"},
+		{"cannot persist managed whitelist ownership: disk full", "保存所有权记录"},
+		{"cannot read managed whitelist ownership: store unavailable", "读取所有权记录"},
+		{"dedicated whitelist group already exists without ownership proof; it will not be adopted", "不会接管"},
+		{"dedicated whitelist group has no confirmed ownership; existing group will not be adopted", "云控制台"},
+		{"whitelist group creation outcome is uncertain; existing group will not be adopted", "不会接管"},
+		{"managed security-group rule was modified; refusing automatic cleanup", "其他修改"},
+		{"managed whitelist group metadata changed; refusing cloud changes", "其他修改"},
+		{"managed whitelist group disappeared; refusing to adopt or recreate it", "其他修改"},
+		{"new managed security-group rule is not visible; old rules retained", "暂停后续清理"},
+		{"submitted managed IP is not visible; old entries retained", "先刷新"},
+		{"new managed IP disappeared; old entries retained", "暂停后续清理"},
+		{"old managed rule is still visible; retry cleanup later", "清理尚未确认"},
+		{"new IP verified; previous managed rule cleanup failed: RevokeSecurityGroup: Forbidden。请核对 RAM 权限 ecs:RevokeSecurityGroup。", "新 IP 已核验"},
+		{"managed RDS/Redis whitelists require an IPv4 address", "IPv4"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got := (&App{}).safeError(errors.New(tc.input))
+			if !strings.Contains(got, tc.want) || !strings.Contains(got, tc.input) {
+				t.Fatalf("missing recovery or original action in %q", got)
+			}
+		})
+	}
+}

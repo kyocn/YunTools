@@ -8,7 +8,11 @@
         "rds:DescribeDBInstanceIPArrayList",
         "kvstore:DescribeInstances",
         "kvstore:DescribeSecurityIps",
-        "ecs:DescribeSecurityGroupAttribute"
+        "ecs:DescribeSecurityGroupAttribute",
+        "oss:GetObjectAcl",
+        "oss:GetBucketAcl",
+        "oss:GetPublicAccessBlock",
+        "oss:GetBucketPublicAccessBlock"
       ],
       "Resource": "*"
     }

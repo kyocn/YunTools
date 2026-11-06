@@ -34,6 +34,8 @@ func friendlyError(detail string) string {
 		message = "阿里云无法识别这个 AccessKey ID。请在「账号管理」中检查是否填写正确，以及密钥是否已启用。"
 	case has("signaturedoesnotmatch", "signature mismatch", "incompletesignature"):
 		message = "账号验证没有通过。请在「账号管理」中核对 AccessKey ID 与 AccessKey Secret 是否配套，并检查电脑时间是否准确。"
+	case has("previous managed rule cleanup failed", "previous managed ip cleanup failed"):
+		message = "新 IP 已核验，但旧受管记录的清理尚未确认。请先刷新规则列表核对，按下方信息检查权限或网络，再次同步可继续核验与清理。"
 	case has("forbidden", "accessdenied", "unauthorized", "nopermission"):
 		message = "当前账号没有执行此操作的权限。请联系阿里云账号管理员，按下方信息检查访问权限（RAM）和允许操作的资源范围。"
 	case has("account credentials are required", "name, access key id and secret are required", "oss requires account", "cloud account required", "cloud account is required"):
@@ -66,6 +68,24 @@ func friendlyError(detail string) string {
 		message = "等待响应超时，暂时无法确认操作结果。请检查网络并先刷新列表；如果刚才提交了更改，请确认云端结果后再重试。"
 	case has("network or cloud service error", "connection refused", "connection reset", "no such host", "network is unreachable", "network unavailable", "tls handshake", "dial tcp"):
 		message = "暂时无法与云服务正常通信。请检查网络并先刷新列表；如果刚才提交了更改，请确认云端结果后再重试。"
+	case has("cannot persist managed whitelist ownership"):
+		message = "无法保存所有权记录，已暂停同步。请检查本地存储并保留现有数据；若刚提交了云端更改，请先刷新规则列表核对结果。"
+	case has("cannot read managed whitelist ownership", "managed whitelist requires an ownership store"):
+		message = "无法读取所有权记录，已停止同步。请检查本地加密存储和系统钥匙串，不要删除原有数据。"
+	case has("managed whitelist ownership scope changed", "managed whitelist ownership journal is invalid"):
+		message = "本地受管白名单记录与当前配置不匹配或已损坏，已停止同步。请保留原有数据并核对云端规则；需要更改资源范围时请新建配置。"
+	case has("dedicated whitelist group", "whitelist group creation outcome is uncertain"):
+		message = "专用白名单分组已存在，但无法确认它由此配置创建，应用不会接管或删除其中的 IP。请先在云控制台核查并保留现有分组；需要重新配置时可新建一个本地配置。"
+	case has("managed security-group rule was modified", "managed rule ownership changed", "managed whitelist group metadata changed", "managed whitelist group disappeared", "managed whitelist changed during cleanup", "ambiguous duplicate whitelist group name"):
+		message = "受管规则或专用白名单分组发生了其他修改，已暂停同步。请先在云控制台核对规则及其他修改来源，再决定是否新建配置。"
+	case has("new managed security-group rule is not visible", "new managed ip is not visible", "submitted managed ip is not visible", "new managed ip disappeared", "new rule disappeared"):
+		message = "新 IP 尚未核验通过或已发生变化，已暂停后续清理。请先刷新规则列表确认云端结果，再次同步会重新核验。"
+	case has("old managed rule is still visible", "old managed ip is still visible"):
+		message = "新 IP 已核验，旧受管记录的清理尚未确认。请先刷新规则列表核对，再次同步可继续核验与清理。"
+	case has("managed rds/redis whitelists require an ipv4 address"):
+		message = "RDS/Redis 的动态白名单需要填写一个 IPv4 地址，例如 203.0.113.8。ECS 安全组也支持 IPv6。"
+	case has("persist a valid whitelist configuration id before syncing"):
+		message = "白名单配置尚未完整保存。请先保存配置，再执行同步。"
 	case has("appended ip not visible yet"):
 		message = "添加请求已提交，但还未在云端查到新规则。请先刷新规则列表确认，不要重复添加。"
 	case has("previous whitelist entry no longer present"):

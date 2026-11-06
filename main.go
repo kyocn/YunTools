@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/plugins/updater/native"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"yuntools/internal/app"
 	"yuntools/internal/cloud"
@@ -73,6 +74,7 @@ func main() {
 		}, SaveFile: func(name string) (string, error) {
 			return mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "保存文件", DefaultPath: name})
 		}}
+		p.CopyText = func(text string) error { return mygo.Clipboard.Write(transfer.TextData(text)) }
 		p.Version = m.Version
 		p.CheckUpdates = updater.CheckForUpdates
 		p.SetAutomaticUpdates = updater.SetAutomaticChecks

@@ -34,7 +34,7 @@ func targetFixture(t *testing.T) (*App, *targetStore) {
 	a.profiles = []cloud.Account{{ID: "account", Name: "Test"}}
 	a.accountID, a.page = "account", "whitelist"
 	a.rules = []cloud.Target{
-		{AccountID: "account", Kind: "rds", Region: "cn-shanghai", ID: "db-test", Name: "Database", Group: "office", Automatic: true},
+		{ConfigID: "fixture-existing-id", AccountID: "account", Kind: "rds", Region: "cn-shanghai", ID: "db-test", Name: "Database", Group: "office", Automatic: true},
 		{AccountID: "other", Kind: "rds", Region: "cn-shanghai", ID: "db-test", Name: "Other account", Group: "office"},
 	}
 	b, err := json.Marshal(a.rules)
@@ -95,6 +95,10 @@ func TestWhitelistTargetEditPreservesIdentityAndOtherAccounts(t *testing.T) {
 	a.saveForm()
 	want := original
 	want.Name, want.Group = "Production", "home"
+	if a.rules[0].ConfigID == "" || a.rules[0].ConfigID == original.ConfigID {
+		t.Fatal("changed rule scope reused old ownership identity")
+	}
+	want.ConfigID = a.rules[0].ConfigID
 	if !reflect.DeepEqual(a.rules, []cloud.Target{want, other}) {
 		t.Fatalf("edit changed identity, automatic mode or another target: %+v", a.rules)
 	}

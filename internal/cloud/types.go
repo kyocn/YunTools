@@ -10,13 +10,14 @@ import (
 var ErrNotFound = errors.New("entry not found")
 
 type Account struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Provider        string `json:"provider"`
-	Region          string `json:"region"`
-	AccessKeyID     string `json:"accessKeyId"`
-	AccessKeySecret string `json:"accessKeySecret"`
-	SecurityToken   string `json:"securityToken,omitempty"`
+	CreatedAt       time.Time `json:"createdAt,omitempty"` // Time this profile was added locally; zero for legacy profiles.
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Provider        string    `json:"provider"`
+	Region          string    `json:"region"`
+	AccessKeyID     string    `json:"accessKeyId"`
+	AccessKeySecret string    `json:"accessKeySecret"`
+	SecurityToken   string    `json:"securityToken,omitempty"`
 }
 
 type SecretStore interface {
@@ -69,8 +70,12 @@ type ObjectStorage interface {
 	Download(context.Context, Transfer, func(Progress)) error
 }
 
-type Domain struct{ Name, ID string }
+type Domain struct {
+	Name, ID string
+	Created  time.Time // Time the domain was added to DNS, not registration time.
+}
 type Record struct {
+	Created, Updated                  time.Time
 	ID, Domain, RR, Type, Value, Line string
 	TTL, Priority                     int
 }
@@ -92,20 +97,29 @@ type ChallengeDNS interface {
 }
 
 type Target struct {
-	AccountID string `json:"accountId"`
-	Kind      string `json:"kind"` // rds, redis, ecs
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Region    string `json:"region"`
-	Group     string `json:"group"`
-	Protocol  string `json:"protocol"`
-	Ports     string `json:"ports"`
-	Automatic bool   `json:"automatic"`
+	Created   time.Time `json:"created,omitempty"` // Cloud resource creation time.
+	ConfigID  string    `json:"configId,omitempty"`
+	SourceIP  string    `json:"sourceIp,omitempty"`
+	AccountID string    `json:"accountId"`
+	Kind      string    `json:"kind"` // rds, redis, ecs
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Region    string    `json:"region"`
+	Group     string    `json:"group"`
+	Protocol  string    `json:"protocol"`
+	Ports     string    `json:"ports"`
+	Automatic bool      `json:"automatic"`
 }
 type Whitelist interface {
 	ListTargets(context.Context, string, string) ([]Target, error)
 	ListRules(context.Context, Target) ([]string, error)
 	AddIP(context.Context, Target, string) error
+}
+
+// DynamicWhitelist synchronizes only records owned by this configured target.
+// Ownership journals are encrypted with the account store and survive restarts.
+type DynamicWhitelist interface {
+	SyncIP(context.Context, Target, string, SecretStore) error
 }
 
 // SecurityGroupInspector is an optional read-only capability for detailed rules.
@@ -114,6 +128,7 @@ type SecurityGroupInspector interface {
 }
 
 type SecurityGroupRule struct {
+	Created                                    time.Time
 	ID, Direction, Policy, Protocol, Ports     string
 	Source, Destination, Priority, Description string
 }

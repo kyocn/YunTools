@@ -21,6 +21,10 @@ func (w *automaticWhitelistFake) AddIP(context.Context, cloud.Target, string) er
 	return w.err
 }
 
+func (w *automaticWhitelistFake) SyncIP(ctx context.Context, t cloud.Target, ip string, _ cloud.SecretStore) error {
+	return w.AddIP(ctx, t, ip)
+}
+
 func automaticWhitelistFixture(t *testing.T, result error) (*App, *automaticWhitelistFake, cloud.Target) {
 	t.Helper()
 	w := &automaticWhitelistFake{err: result}
@@ -31,7 +35,7 @@ func automaticWhitelistFixture(t *testing.T, result error) (*App, *automaticWhit
 		t.Fatal(err)
 	}
 	a.profiles = []cloud.Account{profile}
-	target := cloud.Target{AccountID: profile.ID, ID: "test-target", Name: "测试目标", Kind: "ecs", Protocol: "tcp", Ports: "22/22", Automatic: true}
+	target := cloud.Target{ConfigID: "fixture", AccountID: profile.ID, ID: "test-target", Name: "测试目标", Kind: "ecs", Protocol: "tcp", Ports: "22/22", Automatic: true}
 	a.rules = []cloud.Target{target}
 	a.err, a.notice = "保留手动错误", "保留手动提示"
 	return a, w, target
@@ -41,6 +45,7 @@ func TestAutomaticWhitelistKeepsGlobalBannersAndChecksUnchangedIP(t *testing.T) 
 	for _, failure := range []error{nil, errors.New("Forbidden fake-secret-value")} {
 		a, w, target := automaticWhitelistFixture(t, failure)
 		for check := 0; check < 2; check++ {
+			target = a.rules[0]
 			a.runAutomaticWhitelist([]cloud.Target{target}, func(context.Context) (string, error) { return "192.0.2.1", nil })
 			if a.err != "保留手动错误" || a.notice != "保留手动提示" {
 				t.Fatal("background start cleared a manual banner")
@@ -55,6 +60,7 @@ func TestAutomaticWhitelistKeepsGlobalBannersAndChecksUnchangedIP(t *testing.T) 
 		if w.calls != 2 {
 			t.Fatalf("same IP skipped remote validation: calls=%d", w.calls)
 		}
+		target = a.rules[0]
 		status, ok := a.whitelistFeedback[target]
 		if !ok || status.CheckedAt.IsZero() || status.IP != "192.0.2.1" || (status.Error != "") != (failure != nil) || strings.Contains(status.Error, "fake-secret-value") {
 			t.Fatalf("missing or unsafe inline status: %#v", status)

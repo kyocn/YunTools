@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"yuntools/internal/cloud"
 )
@@ -43,12 +43,7 @@ func (m *Manager) List() ([]cloud.Account, error) {
 	if e != nil {
 		return nil, e
 	}
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].Name == list[j].Name {
-			return list[i].ID < list[j].ID
-		}
-		return list[i].Name < list[j].Name
-	})
+	list = cloud.NewestFirst(list, func(a cloud.Account) time.Time { return a.CreatedAt })
 	return list, nil
 }
 func (m *Manager) Save(a cloud.Account) (cloud.Account, error) {
@@ -77,11 +72,13 @@ func (m *Manager) Save(a cloud.Account) (cloud.Account, error) {
 			return cloud.Account{}, e
 		}
 		a.ID = hex.EncodeToString(id)
+		a.CreatedAt = time.Now().UTC()
 		profiles = append(profiles, a)
 	} else {
 		found := false
 		for i := range profiles {
 			if profiles[i].ID == a.ID {
+				a.CreatedAt = profiles[i].CreatedAt
 				profiles[i] = a
 				found = true
 				break

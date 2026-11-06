@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"yuntools/internal/cloud"
@@ -183,7 +184,7 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 				return
 			}
 			filtered := make([]cloud.SecurityGroupRule, 0, len(d.Rules))
-			for _, r := range d.Rules {
+			for _, r := range cloud.NewestFirst(d.Rules, func(r cloud.SecurityGroupRule) time.Time { return r.Created }) {
 				if d.Direction != "全部方向" && directionLabel(r.Direction) != d.Direction {
 					continue
 				}
@@ -195,7 +196,7 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 			start, end := a.pageRange("security-rules", scope, len(filtered))
 			ui.Scroll(c).Grow(1).FillWidth().Background(p.BG).Border(1, p.Line).Radius(8).Children(func() {
 				ui.Column(c).FillWidth().Children(func() {
-					ruleColumns(c, true, []string{"方向", "策略", "协议", "端口", "来源 / 目标", "优先级", "描述 / 规则 ID"})
+					ruleColumns(c, true, []string{"方向", "策略", "协议", "端口", "来源 / 目标", "优先级", "创建时间", "描述 / 规则 ID"})
 					for _, r := range filtered[start:end] {
 						ports, protocol := r.Ports, strings.ToUpper(r.Protocol)
 						if ports == "-1/-1" {
@@ -204,14 +205,14 @@ func (a *App) ruleDetailsView(c *ui.Context) {
 						if protocol == "ALL" {
 							protocol = "全部"
 						}
-						ruleColumns(c, false, []string{directionLabel(r.Direction), policyLabel(r.Policy), protocol, ports, rulePeer(r), nonEmpty(r.Priority), nonEmpty(r.Description) + "\n" + nonEmpty(r.ID)})
+						ruleColumns(c, false, []string{directionLabel(r.Direction), policyLabel(r.Policy), protocol, ports, rulePeer(r), nonEmpty(r.Priority), formatTimestamp(r.Created), nonEmpty(r.Description) + "\n" + nonEmpty(r.ID)})
 					}
 					if len(filtered) == 0 && !d.Loading && d.Error == "" {
 						ui.Text(c, "没有符合条件的规则。可清空搜索或切换方向。").Padding(20).FontSize(12).TextColor(p.Muted)
 					}
 				})
 			})
-			ui.Text(c, fmt.Sprintf("云端共 %d 条规则 · 长文本可悬停查看完整内容", len(d.Rules))).FontSize(11).TextColor(p.Muted)
+			ui.Text(c, fmt.Sprintf("云端共 %d 条规则 · 创建时间倒序 · 北京时间 · 长文本可悬停查看完整内容", len(d.Rules))).FontSize(11).TextColor(p.Muted)
 			a.pageFooter(c, "security-rules", scope, len(filtered))
 		})
 	})
@@ -229,7 +230,7 @@ func ruleColumns(c *ui.Context, header bool, values []string) {
 	}
 	ui.Row(c).FillWidth().Height(height).Padding(0, 12).Gap(10).AlignItems(ui.Center).Children(func() {
 		for i, value := range values {
-			widths := []float32{46, 46, 52, 72, 168, 46, 0}
+			widths := []float32{36, 36, 42, 58, 124, 38, 130, 0}
 			cell := ui.Column(c).MinWidth(0)
 			if widths[i] > 0 {
 				cell.Width(widths[i]).Shrink(0)

@@ -424,6 +424,9 @@ func (a *App) downloadSelected() {
 	})
 }
 func (a *App) newForm(kind, title string, fields map[string]string) {
+	if kind == "whitelist" {
+		a.err = ""
+	}
 	p, _ := a.storageAccount()
 	a.dialog = &form{Kind: kind, Title: title, Fields: fields, Account: p}
 }
@@ -473,6 +476,9 @@ func (a *App) saveForm() {
 		}
 		a.dialog = nil
 		a.showTasks = true
+		return
+	case "object-link":
+		a.copyObjectLink(f)
 		return
 	case "whitelist":
 		a.saveWhitelistTarget(f, v)
@@ -612,18 +618,23 @@ func (a *App) lookupDNS() {
 		return func() { a.queryResult = domain + "  →  " + strings.Join(rs, ", ") }, e
 	})
 }
-func ruleKey(t cloud.Target) string {
-	return strings.Join([]string{t.AccountID, t.Kind, t.Region, t.ID, t.Group, t.Protocol, t.Ports}, "|")
-}
 func (a *App) toggleAutomatic(index int) {
-	next := append([]cloud.Target(nil), a.rules...)
-	next[index].Automatic = !next[index].Automatic
-	b, _ := json.Marshal(next)
-	if e := a.store.Put("whitelist/rules", b); e != nil {
-		a.err = a.safeError(e)
+	if index < 0 || index >= len(a.rules) {
 		return
 	}
-	a.rules = next
+	next := append([]cloud.Target(nil), a.rules...)
+	next[index].Automatic = !next[index].Automatic
+	if next[index].Automatic {
+		for i, t := range next {
+			if i != index && t.Automatic && ruleScopeKey(t) == ruleScopeKey(next[index]) {
+				a.err = "这个资源和端口已有自动跟随目标；其他 IP 请使用手动指定模式"
+				return
+			}
+		}
+	}
+	if !a.persistWhitelistTargets(next) {
+		return
+	}
 	a.autoNext = time.Now()
 }
 func (a *App) detectIP() {
@@ -640,57 +651,9 @@ func (a *App) addWhitelist(targets []cloud.Target, automatic bool) {
 		a.runAutomaticWhitelist(targets, aliyun.PublicIP)
 		return
 	}
-	a.notice = ""
-	ip := strings.TrimSpace(a.publicIP)
-	a.async(func(ctx context.Context) (func(), error) {
-		if ip == "" {
-			var e error
-			ip, e = aliyun.PublicIP(ctx)
-			if e != nil {
-				return nil, e
-			}
-		}
-		type outcome struct {
-			name string
-			err  error
-		}
-		var outcomes []outcome
-		for _, t := range targets {
-			p, e := a.profile(t.AccountID)
-			if e == nil {
-				w, err := a.p.Whitelist(p)
-				e = err
-				if e == nil {
-					e = w.AddIP(ctx, t, ip)
-				}
-			}
-			name := t.Name
-			if name == "" {
-				name = t.ID
-			}
-			outcomes = append(outcomes, outcome{name, e})
-		}
-		return func() {
-			a.publicIP = ip
-			a.notice = ""
-			var lines []string
-			failed := 0
-			for _, result := range outcomes {
-				if result.err != nil {
-					failed++
-					lines = append(lines, result.name+"："+a.safeError(result.err))
-				} else {
-					lines = append(lines, result.name+"：已确认添加 IP "+ip)
-				}
-			}
-			if failed > 0 {
-				a.err = fmt.Sprintf("已确认 %d 项，%d 项未能确认完成。请查看下方原因和处理方法。\n", len(outcomes)-failed, failed) + strings.Join(lines, "\n")
-			} else {
-				a.notice = strings.Join(lines, "\n")
-			}
-		}, nil
-	})
+	a.runManualWhitelist(targets, aliyun.PublicIP)
 }
+
 func (a *App) autoTick() {
 	if a.locked || a.accounts == nil || time.Now().Before(a.autoNext) {
 		return
@@ -707,6 +670,9 @@ func (a *App) autoTick() {
 	}
 }
 func (a *App) viewRules(t cloud.Target) {
+	if t.Automatic && t.Kind != "ecs" {
+		t.Group = ""
+	}
 	a.openRuleDetails(t)
 }
 func (a *App) renewCertificate(c certificates.Certificate) {

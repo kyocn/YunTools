@@ -1,8 +1,8 @@
 package app
 
 import (
-	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"yuntools/internal/cloud"
@@ -27,7 +27,7 @@ func (a *App) editWhitelistTarget(target cloud.Target) {
 	a.newForm("whitelist", "编辑加白目标", map[string]string{
 		"name": target.Name, "kind": target.Kind, "id": target.ID,
 		"region": target.Region, "group": target.Group,
-		"protocol": target.Protocol, "ports": target.Ports,
+		"protocol": target.Protocol, "ports": target.Ports, "sourceIP": target.SourceIP, "automatic": strconv.FormatBool(target.Automatic),
 	})
 	a.dialog.Account = cloud.Account{ID: target.AccountID}
 	for _, account := range a.profiles {
@@ -54,16 +54,32 @@ func (a *App) saveWhitelistTarget(f form, fields map[string]string) {
 		a.err = "请选择实例"
 		return
 	}
+	ip, err := normalizeTargetIP(fields["sourceIP"], target.Kind)
+	if err != nil {
+		a.err = err.Error()
+		return
+	}
+	target.SourceIP = ip
+	if value, ok := fields["automatic"]; ok {
+		target.Automatic = value == "true"
+	}
 	target.Name = strings.TrimSpace(fields["name"])
 	if target.Kind == "ecs" {
-		target.Protocol = strings.TrimSpace(fields["protocol"])
+		target.Protocol = strings.ToLower(strings.TrimSpace(fields["protocol"]))
 		target.Ports = strings.TrimSpace(fields["ports"])
 	} else {
 		target.Group = strings.TrimSpace(fields["group"])
 	}
 	for i, existing := range a.rules {
-		if i != index && ruleKey(existing) == ruleKey(target) {
-			a.err = "该规则已经存在"
+		if i != index && duplicateWhitelistTarget(existing, target) {
+			a.err = "相同资源、端口和 IP 的目标已存在；同一规则只需开启一个自动跟随目标"
+			return
+		}
+	}
+	if target.ConfigID == "" || (index >= 0 && ruleScopeKey(target) != ruleScopeKey(a.rules[index])) {
+		target.ConfigID, err = newWhitelistConfigID()
+		if err != nil {
+			a.err = a.safeError(err)
 			return
 		}
 	}
@@ -84,19 +100,10 @@ func (a *App) saveWhitelistTarget(f form, fields map[string]string) {
 }
 
 func (a *App) persistWhitelistTargets(next []cloud.Target) bool {
-	if a.store == nil || a.locked {
-		a.err = "请先解锁账号保险库"
-		return false
-	}
-	b, err := json.Marshal(next)
-	if err == nil {
-		err = a.store.Put("whitelist/rules", b)
-	}
-	if err != nil {
+	if err := a.writeWhitelistTargets(next); err != nil {
 		a.err = a.safeError(err)
 		return false
 	}
-	a.rules = next
 	a.err = ""
 	return true
 }

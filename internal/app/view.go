@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"yuntools/internal/certificates"
 	"yuntools/internal/cloud"
 	"yuntools/internal/icons"
 	"yuntools/internal/tasks"
@@ -455,7 +456,7 @@ func (a *App) dnsPage(c *ui.Context) {
 			a.empty(c, "global-line", "管理你的域名解析", "刷新已接入阿里云 DNS 的域名，或添加一个解析域名。")
 			return
 		}
-		domains, total := pagedItems(a, "domains", a.accountID+"/"+a.search, a.domains, func(d cloud.Domain) bool { return matches(a.search, d.Name) })
+		domains, total := pagedItems(a, "domains", a.accountID+"/"+a.search, cloud.NewestFirst(a.domains, func(d cloud.Domain) time.Time { return d.Created }), func(d cloud.Domain) bool { return matches(a.search, d.Name) })
 		ui.Scroll(c).Grow(1).FillWidth().Children(func() {
 			ui.Column(c).FillWidth().Gap(6).Children(func() {
 				for _, d := range domains {
@@ -465,7 +466,10 @@ func (a *App) dnsPage(c *ui.Context) {
 					}
 					resourceRow(c, d.Name, func() {
 						ui.Icon(c, icons.Get("global-line")).Size(20, 20).TextColor(p.Accent)
-						ui.Text(c, d.Name).Grow(1).Bold()
+						ui.Column(c).Grow(1).Gap(4).Children(func() {
+							ui.Text(c, d.Name).Bold()
+							ui.Text(c, "添加时间（北京时间） "+formatTimestamp(d.Created)).FontSize(11).TextColor(p.Muted)
+						})
 						if ui.Button(c, "查看解析").Clicked() {
 							a.domain = d.Name
 							a.records = nil
@@ -486,7 +490,7 @@ func (a *App) dnsPage(c *ui.Context) {
 		a.empty(c, "global-line", "暂无解析记录", "新增 A、AAAA、CNAME、TXT 或 MX 记录。")
 		return
 	}
-	records, total := pagedItems(a, "dns-records", a.accountID+"/"+a.domain+"/"+a.search, a.records, func(r cloud.Record) bool { return matches(a.search, r.RR, r.Type, r.Value) })
+	records, total := pagedItems(a, "dns-records", a.accountID+"/"+a.domain+"/"+a.search, cloud.NewestFirst(a.records, func(r cloud.Record) time.Time { return r.Created }), func(r cloud.Record) bool { return matches(a.search, r.RR, r.Type, r.Value) })
 	a.dnsRecordTable(c, records)
 	a.pageFooter(c, "dns-records", a.accountID+"/"+a.domain+"/"+a.search, total)
 }
@@ -501,7 +505,7 @@ func (a *App) whitelistPage(c *ui.Context) {
 		ui.Text(c, "当前 IP").FontSize(12).TextColor(p.Muted)
 		ui.TextInput(c, &a.publicIP).Placeholder("自动检测或手动输入 IP").Width(240)
 		ui.Box(c).Grow(1)
-		if ui.Button(c, "为本账号全部目标加白").Disabled(a.accountID == "").Clicked() {
+		if ui.Button(c, "为本账号全部目标加白").Disabled(a.accountID == "" || a.whitelistManualRunning || a.whitelistAutomaticRunning).Clicked() {
 			var targets []cloud.Target
 			for _, t := range a.rules {
 				if t.AccountID == a.accountID {
@@ -546,12 +550,13 @@ func (a *App) whitelistPage(c *ui.Context) {
 			if len(a.targets) > 0 {
 				ui.Text(c, "双击资源名称或点击“查看规则”，了解谁可以访问；“添加目标”用于配置自动加白。").FontSize(11).TextColor(p.Muted)
 				scope := a.accountID + "/" + a.resourceKind + "/" + a.region
-				targets, total := pagedItems(a, "whitelist-resources", scope, a.targets, nil)
+				targets, total := pagedItems(a, "whitelist-resources", scope, cloud.NewestFirst(a.targets, func(t cloud.Target) time.Time { return t.Created }), nil)
 				card(c).FillWidth().Padding(12).Gap(6).Children(func() {
 					for _, t := range targets {
 						t := t
 						ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 							a.resourceRuleLink(c, t)
+							ui.Text(c, "创建时间（北京时间）\n"+formatTimestamp(t.Created)).Width(148).FontSize(10).TextColor(p.Muted)
 							if ui.Button(c, "查看规则").FontSize(11).Clicked() {
 								a.openRuleDetails(t)
 							}
@@ -580,6 +585,10 @@ func (a *App) whitelistPage(c *ui.Context) {
 						ui.Text(c, strings.ToUpper(t.Kind)+" · "+resourceRegionName(t.Region)).FontSize(11).TextColor(p.Muted)
 					})
 					ui.Text(c, t.ID+"  "+t.Group+"  "+t.Protocol+" "+t.Ports).FontSize(11).TextColor(p.Muted)
+					ui.Text(c, whitelistIPDescription(t)).FontSize(12).TextColor(p.Muted).Selectable()
+					if t.Automatic && t.Kind != "ecs" {
+						ui.Text(c, "自动跟随使用本工具的独立分组，原分组已有规则保留。").FontSize(11).TextColor(p.Muted)
+					}
 					a.whitelistAutomaticStatus(c, t)
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 						on := t.Automatic
@@ -596,7 +605,7 @@ func (a *App) whitelistPage(c *ui.Context) {
 						if ui.Button(c, "查看现有规则").Clicked() {
 							a.viewRules(t)
 						}
-						if ui.Button(c, "立即加白").Clicked() {
+						if ui.Button(c, "立即加白").Disabled(a.whitelistManualRunning || a.whitelistAutomaticRunning).Clicked() {
 							a.addWhitelist([]cloud.Target{t}, false)
 						}
 					})
@@ -629,17 +638,18 @@ func (a *App) certPage(c *ui.Context) {
 		a.empty(c, "key-2-line", "为你的域名签发证书", "支持普通域名和泛域名。申请进度会显示在任务中心。")
 		return
 	}
+	certs := cloud.NewestFirst(a.certList, func(c certificates.Certificate) time.Time { return c.IssuedAt })
 	certStart, certEnd := a.pageRange("certificates", a.accountID, len(a.certList))
 	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
 		ui.Column(c).FillWidth().Gap(12).Children(func() {
-			for _, cert := range a.certList[certStart:certEnd] {
+			for _, cert := range certs[certStart:certEnd] {
 				cert := cert
 				card(c).FillWidth().Padding(20).Gap(12).Children(func() {
 					ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 						ui.Icon(c, icons.Get("key-2-line")).Size(26, 26).TextColor(p.Green)
 						ui.Column(c).Grow(1).Gap(5).Children(func() {
 							ui.Text(c, strings.Join(cert.Domains, ", ")).Bold()
-							ui.Text(c, "有效期至 "+cert.ExpiresAt.Local().Format("2006-01-02 15:04")).FontSize(11).TextColor(p.Muted)
+							ui.Text(c, "签发（北京时间） "+formatTimestamp(cert.IssuedAt)+" · 到期 "+formatTimestamp(cert.ExpiresAt)).FontSize(11).TextColor(p.Muted)
 						})
 						label := "正式证书"
 						if cert.Staging {
@@ -688,6 +698,7 @@ func (a *App) accountsPage(c *ui.Context) {
 						ui.Column(c).Grow(1).Gap(4).Children(func() {
 							ui.Text(c, profile.Name).FontSize(16).Bold()
 							ui.Text(c, "阿里云 · "+profile.Region).FontSize(12).TextColor(p.Muted)
+							ui.Text(c, "本机添加（北京时间） "+formatTimestamp(profile.CreatedAt)).FontSize(11).TextColor(p.Muted)
 						})
 						ui.Text(c, "已加密").FontSize(11).TextColor(p.Green)
 					})
@@ -737,7 +748,7 @@ func (a *App) taskCenter(c *ui.Context) {
 		if a.jobs == nil {
 			return
 		}
-		jobs := a.jobs.Snapshot()
+		jobs := cloud.NewestFirst(a.jobs.Snapshot(), func(j tasks.Job) time.Time { return j.Created })
 		if len(jobs) == 0 {
 			ui.Text(c, "暂无任务。上传、下载与证书签发进度将在这里显示。").FontSize(12).TextColor(p.Muted)
 			return
@@ -745,8 +756,8 @@ func (a *App) taskCenter(c *ui.Context) {
 		start, end := a.pageRange("tasks", "", len(jobs))
 		ui.Scroll(c).Grow(1).FillWidth().Children(func() {
 			ui.Column(c).FillWidth().Gap(10).Children(func() {
-				for i := len(jobs) - 1 - start; i >= len(jobs)-end; i-- {
-					j := jobs[i]
+				for _, j := range jobs[start:end] {
+					j := j
 					ui.Row(c.Key(j.ID)).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
 						ui.Column(c).Width(220).Gap(4).Children(func() {
 							ui.Text(c, j.Title).FontSize(12).SingleLine()
@@ -757,6 +768,7 @@ func (a *App) taskCenter(c *ui.Context) {
 								}
 							}
 							ui.Text(c, name+" · "+stateLabel(j.State)).FontSize(10).TextColor(p.Muted)
+							ui.Text(c, "创建（北京时间） "+formatTimestamp(j.Created)+" · 更新 "+formatTimestamp(j.Updated)).FontSize(10).TextColor(p.Muted)
 						})
 						ui.Column(c).Grow(1).Gap(4).Children(func() {
 							ratio := 0.0

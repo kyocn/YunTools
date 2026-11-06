@@ -12,10 +12,14 @@ import (
 var beijingTime = time.FixedZone("北京时间", 8*60*60)
 
 func objectModified(o cloud.Object) string {
-	if o.Modified.IsZero() {
+	return formatTimestamp(o.Modified)
+}
+
+func formatTimestamp(value time.Time) string {
+	if value.IsZero() {
 		return "—"
 	}
-	return o.Modified.In(beijingTime).Format("2006-01-02 15:04")
+	return value.In(beijingTime).Format("2006-01-02 15:04")
 }
 func objectSize(o cloud.Object) string {
 	if o.IsDir {
@@ -45,7 +49,7 @@ func ossName(c *ui.Context, label, icon string, accent bool) bool {
 	})
 	return b.Clicked()
 }
-func ossTable(c *ui.Context, widths [4]float32, labels [4]string, nameInset float32, rows func()) {
+func ossTable(c *ui.Context, widths []float32, labels []string, nameInset float32, rows func()) {
 	p := theme.Colors(c.Theme().Dark)
 	ui.Scroll(c).Grow(1).FillWidth().Background(p.Card).Border(1, p.Line).Radius(10).Children(func() {
 		ui.Column(c).FillWidth().MinWidth(0).Children(func() {
@@ -74,16 +78,16 @@ func ossDataRow(c *ui.Context, key string, fn func()) {
 }
 func (a *App) bucketTable(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	widths := [4]float32{0, 150, 110, 112}
+	widths := []float32{0, 110, 85, 152, 40}
 	filtered := make([]cloud.Bucket, 0, len(a.buckets))
-	for _, b := range a.buckets {
+	for _, b := range cloud.NewestFirst(a.buckets, func(b cloud.Bucket) time.Time { return b.Created }) {
 		if matches(a.search, b.Name, b.Region) {
 			filtered = append(filtered, b)
 		}
 	}
 	filter := a.accountID + "\x00" + a.search
 	start, end := a.pageRange("oss-buckets", filter, len(filtered))
-	ossTable(c, widths, [4]string{"存储空间", "地域", "存储类型", "操作"}, 18, func() {
+	ossTable(c, widths, []string{"存储空间", "地域", "存储类型", "创建时间（北京时间）", "操作"}, 18, func() {
 		for _, b := range filtered[start:end] {
 			b := b
 			ossDataRow(c, b.Name, func() {
@@ -97,7 +101,8 @@ func (a *App) bucketTable(c *ui.Context) {
 				})
 				ossCell(c, widths[1]).Children(func() { ui.Text(c, b.Region).FontSize(12).TextColor(p.Muted) })
 				ossCell(c, widths[2]).Children(func() { ui.Text(c, b.StorageClass).FontSize(12).TextColor(p.Muted) })
-				ossCell(c, widths[3]).Children(func() {
+				ossCell(c, widths[3]).Children(func() { ui.Text(c, formatTimestamp(b.Created)).FontSize(12).TextColor(p.Muted) })
+				ossCell(c, widths[4]).Children(func() {
 					iconButton(c, "删除 Bucket "+b.Name, "delete-bin-line", false, func() { a.deleteBucket(b.Name) })
 				})
 			})
@@ -107,8 +112,8 @@ func (a *App) bucketTable(c *ui.Context) {
 }
 func (a *App) objectTable(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	widths := [4]float32{0, 96, 172, 112}
-	ossTable(c, widths, [4]string{"对象名称", "大小", "最后修改（北京时间）", "操作"}, 48, func() {
+	widths := []float32{0, 96, 172, 132}
+	ossTable(c, widths, []string{"对象名称", "大小", "最后修改（北京时间）", "操作"}, 48, func() {
 		for _, o := range a.objects {
 			o := o
 			ossDataRow(c, o.Key, func() {
@@ -138,6 +143,7 @@ func (a *App) objectTable(c *ui.Context) {
 				ossCell(c, widths[2]).Children(func() { ui.Text(c, objectModified(o)).FontSize(12).TextColor(p.Muted) })
 				ossCell(c, widths[3]).Children(func() {
 					if !o.IsDir {
+						iconButton(c, "复制访问链接 "+o.Key, "global-line", a.busy > 0, func() { a.openObjectLink(o) })
 						iconButton(c, "复制 "+o.Key, "file-copy-line", false, func() {
 							a.newForm("copy", "复制对象", map[string]string{"source": o.Key, "destination": o.Key + ".copy"})
 						})

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"yuntools/internal/cloud"
 )
 
@@ -30,7 +31,10 @@ func (c *Client) ListDomains(ctx context.Context) ([]cloud.Domain, error) {
 		var r struct {
 			TotalCount int
 			Domains    struct {
-				Domain []struct{ DomainName, DomainId string }
+				Domain []struct {
+					DomainName, DomainId string
+					CreateTimestamp      int64
+				}
 			}
 		}
 		err := c.call(ctx, "dns", "DescribeDomains", map[string]string{"PageNumber": strconv.Itoa(page), "PageSize": "100"}, &r)
@@ -38,13 +42,13 @@ func (c *Client) ListDomains(ctx context.Context) ([]cloud.Domain, error) {
 			return nil, err
 		}
 		for _, d := range r.Domains.Domain {
-			out = append(out, cloud.Domain{Name: d.DomainName, ID: d.DomainId})
+			out = append(out, cloud.Domain{Name: d.DomainName, ID: d.DomainId, Created: parseCloudMillis(d.CreateTimestamp)})
 		}
 		if len(r.Domains.Domain) == 0 || len(out) >= r.TotalCount {
 			break
 		}
 	}
-	return out, nil
+	return cloud.NewestFirst(out, func(d cloud.Domain) time.Time { return d.Created }), nil
 }
 func (c *Client) AddDomain(ctx context.Context, name string) error {
 	name = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
@@ -65,12 +69,13 @@ func (c *Client) AddDomain(ctx context.Context, name string) error {
 }
 
 type dnsRecord struct {
+	CreateTimestamp, UpdateTimestamp            int64
 	RecordId, DomainName, RR, Type, Value, Line string
 	TTL, Priority                               int
 }
 
 func (d dnsRecord) record() cloud.Record {
-	return cloud.Record{ID: d.RecordId, Domain: d.DomainName, RR: d.RR, Type: d.Type, Value: d.Value, Line: d.Line, TTL: d.TTL, Priority: d.Priority}
+	return cloud.Record{Created: parseCloudMillis(d.CreateTimestamp), Updated: parseCloudMillis(d.UpdateTimestamp), ID: d.RecordId, Domain: d.DomainName, RR: d.RR, Type: d.Type, Value: d.Value, Line: d.Line, TTL: d.TTL, Priority: d.Priority}
 }
 func (c *Client) ListRecords(ctx context.Context, domain string) ([]cloud.Record, error) {
 	if !validDomain(domain) {
@@ -94,7 +99,7 @@ func (c *Client) ListRecords(ctx context.Context, domain string) ([]cloud.Record
 			break
 		}
 	}
-	return out, nil
+	return cloud.NewestFirst(out, func(r cloud.Record) time.Time { return r.Created }), nil
 }
 func normalizeRecord(r cloud.Record) (cloud.Record, error) {
 	r.Domain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(r.Domain), "."))

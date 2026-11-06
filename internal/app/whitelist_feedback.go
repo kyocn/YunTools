@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -37,25 +36,31 @@ func (a *App) hasAutomaticWhitelistTarget(target cloud.Target) bool {
 // banners. Snapshots belong to the configured target, not the currently open
 // page, and results are applied only while the target and account still match.
 func (a *App) runAutomaticWhitelist(targets []cloud.Target, detectIP func(context.Context) (string, error)) {
-	if a.whitelistAutomaticRunning {
+	if a.whitelistAutomaticRunning || a.whitelistManualRunning {
 		return
 	}
-	type check struct {
-		target     cloud.Target
-		account    cloud.Account
-		hasAccount bool
-		err        error
-	}
-	var checks []check
+	var selected []cloud.Target
 	for _, target := range targets {
 		if a.hasAutomaticWhitelistTarget(target) {
-			account, ok := a.whitelistAccountSnapshot(target.AccountID)
-			checks = append(checks, check{target: target, account: account, hasAccount: ok})
+			selected = append(selected, target)
 		}
 	}
-	if len(checks) == 0 {
+	if len(selected) == 0 {
 		return
 	}
+	selected, err := a.prepareWhitelistTargets(selected)
+	if err != nil {
+		if a.whitelistFeedback == nil {
+			a.whitelistFeedback = make(map[cloud.Target]whitelistAutomaticFeedback)
+		}
+		for _, target := range targets {
+			if a.hasAutomaticWhitelistTarget(target) {
+				a.whitelistFeedback[target] = whitelistAutomaticFeedback{CheckedAt: time.Now(), Error: a.safeError(err)}
+			}
+		}
+		return
+	}
+	checks := a.whitelistChecks(selected)
 	for target := range a.whitelistFeedback {
 		if !a.hasAutomaticWhitelistTarget(target) {
 			delete(a.whitelistFeedback, target)
@@ -68,43 +73,8 @@ func (a *App) runAutomaticWhitelist(targets []cloud.Target, detectIP func(contex
 		defer a.workers.Done()
 		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
 		defer cancel()
-		ip, detectionError := detectIP(ctx)
-		for i := range checks {
-			result := &checks[i]
-			result.err = detectionError
-			if result.err != nil {
-				continue
-			}
-			if !result.hasAccount {
-				result.err = errors.New("任务绑定的账号不存在，请重新添加原账号")
-				continue
-			}
-			provider, err := a.p.Whitelist(result.account)
-			result.err = err
-			if err == nil {
-				// Always verify remote rules, even when the public IP is unchanged.
-				result.err = provider.AddIP(ctx, result.target, ip)
-			}
-		}
-		checkedAt := time.Now()
-		a.post(func() {
-			a.busy--
-			a.whitelistAutomaticRunning = false
-			for _, result := range checks {
-				account, ok := a.whitelistAccountSnapshot(result.target.AccountID)
-				if !a.hasAutomaticWhitelistTarget(result.target) || ok != result.hasAccount || account != result.account {
-					continue
-				}
-				status := whitelistAutomaticFeedback{CheckedAt: checkedAt, IP: ip}
-				if result.err != nil {
-					status.Error = a.safeError(result.err)
-				}
-				if a.whitelistFeedback == nil {
-					a.whitelistFeedback = make(map[cloud.Target]whitelistAutomaticFeedback)
-				}
-				a.whitelistFeedback[result.target] = status
-			}
-		})
+		checks = a.executeWhitelist(ctx, checks, "", detectIP)
+		a.post(func() { a.busy--; a.whitelistAutomaticRunning = false; a.applyWhitelistResults(checks) })
 	}()
 }
 

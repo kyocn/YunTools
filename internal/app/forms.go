@@ -69,15 +69,20 @@ func (a *App) dialogView(c *ui.Context) {
 	}
 	f := a.dialog
 	p := theme.Colors(a.dark)
+	_, viewportHeight := c.Size()
+	formHeight := min(float32(620), max(float32(300), viewportHeight-96))
 	open := true
 	panel := ui.Modal(c.Key("form:"+f.Kind), &open, func() {
-		ui.Column(c).Width(520).MaxHeight(620).Gap(18).Children(func() {
+		ui.Column(c).Width(520).MaxHeight(formHeight).Gap(18).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, f.Title).FontSize(19).FontWeight(650).Grow(1)
 				iconButton(c, "关闭对话框", "close-line", a.busy > 0, func() { a.dialog = nil })
 			})
 			if f.Kind != "account" {
 				ui.Text(c, "账号："+f.Account.Name).FontSize(11).TextColor(p.Muted)
+			}
+			if f.Kind == "whitelist" && a.err != "" {
+				ui.Text(c, a.err).FillWidth().MaxLines(3).FontSize(12).TextColor(p.Red).Selectable().Tooltip(a.err)
 			}
 			var specs []fieldSpec
 			switch f.Kind {
@@ -95,8 +100,10 @@ func (a *App) dialogView(c *ui.Context) {
 				specs = []fieldSpec{{key: "source", label: "源对象", readOnly: true}, {key: "destination", label: "目标对象路径", placeholder: "folder/file.txt"}}
 			case "metadata":
 				specs = []fieldSpec{{key: "source", label: "对象路径", readOnly: true}, {key: "size", label: "对象大小", readOnly: true}, {key: "etag", label: "ETag", readOnly: true}, {key: "metadata", label: "自定义元数据（JSON）", placeholder: "{}", multiline: true}}
+			case "object-link":
+				specs = objectLinkFieldSpecs()
 			case "whitelist":
-				specs = []fieldSpec{{key: "name", label: "目标名称"}, {key: "kind", label: "资源类型", readOnly: true}, {key: "id", label: "资源 ID", readOnly: true}, {key: "region", label: "地域", readOnly: true}}
+				specs = []fieldSpec{{key: "name", label: "目标名称"}, {key: "sourceIP", label: "指定 IP（可选）", placeholder: "例如 203.0.113.10，留空使用页面当前 IP"}, {key: "kind", label: "资源类型", readOnly: true}, {key: "id", label: "资源 ID", readOnly: true}, {key: "region", label: "地域", readOnly: true}}
 				if f.Fields["kind"] == "ecs" {
 					specs = append(specs, fieldSpec{key: "protocol", label: "协议（tcp / udp）"}, fieldSpec{key: "ports", label: "目的端口范围", placeholder: "22/22 或 443/443"})
 				} else {
@@ -105,7 +112,7 @@ func (a *App) dialogView(c *ui.Context) {
 			case "certificate":
 				specs = []fieldSpec{{key: "domains", label: "证书域名", placeholder: "example.com, *.example.com", multiline: true}, {key: "email", label: "ACME 联系邮箱", placeholder: "admin@example.com"}}
 			}
-			ui.Scroll(c).MaxHeight(440).FillWidth().Children(func() {
+			ui.Scroll(c).MaxHeight(min(float32(440), formHeight-180)).FillWidth().Children(func() {
 				ui.Column(c).FillWidth().Gap(14).PaddingEnd(12).Children(func() {
 					for i, spec := range specs {
 						spec := spec
@@ -132,15 +139,30 @@ func (a *App) dialogView(c *ui.Context) {
 							if input.Changed() {
 								f.Fields[spec.key] = value
 							}
+							if f.Kind == "whitelist" && spec.key == "sourceIP" {
+								automatic := f.Fields["automatic"] == "true"
+								if ui.Checkbox(c, &automatic, "自动跟随公网 IP（替换本工具管理的旧 IP）").Changed() {
+									if automatic {
+										f.Fields["automatic"] = "true"
+									} else {
+										f.Fields["automatic"] = "false"
+									}
+								}
+								ui.Text(c, "关闭时使用指定 IP；开启后自动更新为当前公网 IP。相同资源和端口可配置多个不同 IP。").FillWidth().FontSize(11).TextColor(p.Muted)
+							}
 						})
+					}
+					if f.Kind == "object-link" {
+						a.objectLinkFormHelp(c, f)
 					}
 					if f.Kind == "certificate" {
 						ui.Checkbox(c, &f.Staging, "使用测试环境（证书不受浏览器信任）")
 						ui.Checkbox(c, &f.Terms, "我已阅读并同意 Let’s Encrypt 服务条款")
 						ui.Text(c, "服务条款：https://letsencrypt.org/repository/\nDNS 验证会添加临时 TXT，完成后仅清理本工具创建的记录。").FontSize(10).TextColor(p.Muted)
 					}
+
 					if f.Kind == "whitelist" && f.OriginalTarget != nil {
-						ui.Text(c, "仅修改本机配置，供后续加白使用。账号、资源和地域不变；云端已有规则不会被修改或删除。").FontSize(11).TextColor(p.Muted)
+						ui.Text(c, "仅修改本机配置，供后续加白使用。账号、资源和地域不变。修改端口或分组会建立新的托管配置；原云端规则保留。").FontSize(11).TextColor(p.Muted)
 					}
 				})
 			})
@@ -149,6 +171,9 @@ func (a *App) dialogView(c *ui.Context) {
 					a.dialog = nil
 				}
 				label := "保存"
+				if f.Kind == "object-link" {
+					label = "复制访问链接"
+				}
 				if f.Kind == "certificate" {
 					label = "开始签发"
 				}

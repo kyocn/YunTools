@@ -6,7 +6,8 @@
       "Action": [
         "ecs:DescribeSecurityGroups",
         "ecs:DescribeSecurityGroupAttribute",
-        "ecs:AuthorizeSecurityGroup"
+        "ecs:AuthorizeSecurityGroup",
+        "ecs:RevokeSecurityGroup"
       ],
       "Resource": "*"
     },
@@ -46,6 +47,8 @@
         "oss:GetBucket*",
         "oss:ListObjects",
         "oss:GetObject",
+        "oss:GetPublicAccessBlock",
+        "oss:GetObjectAcl",
         "oss:PutObject",
         "oss:DeleteObject"
       ],

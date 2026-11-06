@@ -1,6 +1,6 @@
 # 版本与 GitHub 更新
 
-更新仓库：<https://github.com/kyocn/YunTools>。`mygo.json` 是版本号的唯一来源；应用通过编译时嵌入该配置显示版本，MyGo 用同一配置生成更新包。当前版本 `0.2.1`。
+更新仓库：<https://github.com/kyocn/YunTools>。`mygo.json` 是版本号的唯一来源；应用通过编译时嵌入该配置显示版本，MyGo 用同一配置生成更新包。当前版本 `0.2.2`。
 
 ## 使用
 
@@ -18,9 +18,9 @@
 
 ## 发布流程
 
-1. 修改 `mygo.json` 的 `version`，并在 `CHANGELOG.md` 添加完全相同版本的二级标题，例如 `## 0.2.1`。
+1. 修改 `mygo.json` 的 `version`，并在 `CHANGELOG.md` 添加完全相同版本的二级标题，例如 `## 0.2.2`。
 2. 运行 `./scripts/check.sh`。本地打包可用 `go tool mygo build -platform darwin/arm64,windows/amd64,linux/amd64 -skip-dmg -skip-installer -o dist`。
-3. 将代码提交到 `kyocn/YunTools`，推送对应标签（如 `v0.2.1`）。
+3. 将代码提交到 `kyocn/YunTools`，推送对应标签（如 `v0.2.2`）。
 4. `.github/workflows/release.yml` 校验标签与版本、运行测试，创建草稿 Release，并构建 macOS/Windows/Linux 的 arm64 与 amd64 版本。CI 自动打包须事先配置签名 Secret；未配置时只运行校验，并跳过打包。此时可以使用本机同一签名密钥打包，再手动上传附件发布。
 5. 所有构建成功后检查草稿中的安装包、`yuntools-<version>-<platform>.tar.gz` 和对应 `update-<platform>.json`，再发布草稿为最新正式 Release。不要提前发布部分平台的附件；工作流拒绝覆盖已发布版本。
 6. 从旧版本「检查更新」，确认版本说明、下载、签名校验、重启与版本变化。这一步需要实际发布比旧版更新的 Release。

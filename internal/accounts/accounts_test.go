@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 	"yuntools/internal/cloud"
 	"yuntools/internal/keychain"
 )
@@ -148,5 +149,36 @@ func TestCorruptProfilesAreNotSilentlyDiscarded(t *testing.T) {
 	after, e := s.Get(profilesKey)
 	if e != nil || !bytes.Equal(after, original) {
 		t.Fatal("corrupt profiles discarded")
+	}
+}
+
+func TestAccountCreationTimePreservedAndLegacyUnknown(t *testing.T) {
+	s, e := keychain.Open(t.TempDir(), &backend{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	m := New(s)
+	a, e := m.Save(cloud.Account{Name: "new", AccessKeyID: "id", AccessKeySecret: "secret"})
+	if e != nil || a.CreatedAt.IsZero() {
+		t.Fatalf("%v %v", a.CreatedAt, e)
+	}
+	created := a.CreatedAt
+	a.CreatedAt = time.Time{}
+	a, e = m.Save(a)
+	if e != nil || !a.CreatedAt.Equal(created) {
+		t.Fatalf("edit lost creation time: %v %v", a.CreatedAt, e)
+	}
+	legacy := []byte(`[{"id":"legacy","name":"old","provider":"aliyun","accessKeyId":"id","accessKeySecret":"secret"}]`)
+	if e = s.Put(profilesKey, legacy); e != nil {
+		t.Fatal(e)
+	}
+	list, e := m.List()
+	if e != nil || len(list) != 1 || !list[0].CreatedAt.IsZero() {
+		t.Fatalf("legacy time invented: %v %v", list, e)
+	}
+	edited, e := m.Save(list[0])
+	if e != nil || !edited.CreatedAt.IsZero() {
+		t.Fatalf("legacy edit invented time: %v %v", edited.CreatedAt, e)
 	}
 }
