@@ -1,0 +1,14 @@
+{
+  "name": "YunTools",
+  "identifier": "dev.aliyuntools.desktop",
+  "version": "0.2.1",
+  "icon": "resources/icon.png",
+  "out": "build",
+  "updates": {
+    "github": "kyocn/YunTools",
+    "tagPrefix": "v",
+    "publicKey": "IzlK/UoX+ufZo0X6zsNoanKItjismh325vgv5K38Wuc=",
+    "privateKey": ".local/update-keys/mygo-update.key",
+    "deltas": 0
+  }
+}

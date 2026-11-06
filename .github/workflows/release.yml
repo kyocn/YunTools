@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      signing_ready: ${{ steps.signing.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Validate version and repository
+        run: |
+          python3 - <<'PY'
+          import json, os
+          config = json.load(open('mygo.json'))
+          assert os.environ['GITHUB_REF_NAME'] == 'v' + config['version'], 'Tag must match mygo.json'
+          assert os.environ['GITHUB_REPOSITORY'].lower() == config['updates']['github'].lower(), 'Wrong release repository'
+          PY
+      - name: Check formatting, tests and vet
+        run: ./scripts/check.sh
+      - name: Check signing key availability
+        id: signing
+        env:
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+        run: |
+          if [ -n "$MYGO_UPDATER_PRIVATE_KEY" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Automatic release build skipped: configure MYGO_UPDATER_PRIVATE_KEY. Locally signed packages can be published manually.'
+          fi
+
+  draft-release:
+    needs: validate
+    if: needs.validate.outputs.signing_ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft, never overwrite a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft > release.json; then
+            test "$(jq -r .isDraft release.json)" = true || { echo 'Release is already published; use a new version.'; exit 1; }
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "YunTools $GITHUB_REF_NAME" --generate-notes
+          fi
+
+  build:
+    needs: draft-release
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, platform: 'darwin/arm64,darwin/amd64' }
+          - { name: Windows, os: ubuntu-latest, platform: 'windows/amd64,windows/arm64' }
+          - { name: Linux, os: ubuntu-latest, platform: 'linux/amd64,linux/arm64' }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install Windows installer tooling
+        if: matrix.name == 'Windows'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Build signed updates and upload to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          RELEASE_PLATFORMS: ${{ matrix.platform }}
+        run: go tool mygo build -platform "$RELEASE_PLATFORMS" -upload

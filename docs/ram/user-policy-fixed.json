@@ -1,0 +1,60 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeSecurityGroups",
+        "ecs:DescribeSecurityGroupAttribute",
+        "ecs:AuthorizeSecurityGroup"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBInstanceIPArrayList",
+        "rds:ModifySecurityIps"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kvstore:DescribeInstances",
+        "kvstore:DescribeSecurityIps",
+        "kvstore:ModifySecurityIps"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "alidns:DescribeDomains",
+        "alidns:DescribeDomainRecords",
+        "alidns:DescribeDomainRecordInfo",
+        "alidns:AddDomainRecord",
+        "alidns:DeleteDomainRecord"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:ListBuckets",
+        "oss:GetBucket*",
+        "oss:ListObjects",
+        "oss:GetObject",
+        "oss:PutObject",
+        "oss:DeleteObject"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    }
+  ]
+}
