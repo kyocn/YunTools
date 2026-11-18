@@ -1,0 +1,71 @@
+name: Publish locally signed YunTools 0.2.4
+on:
+  push:
+    branches: ['release-assets/v0.2.4']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-yuntools-v0.2.4
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify all prepared assets
+        run: |
+          cd assets
+          sha256sum --check SHA256SUMS
+          python3 - <<'PY'
+          import json, pathlib, hashlib, base64, subprocess
+          pub = bytes.fromhex('302a300506032b6570032100') + base64.b64decode('IzlK/UoX+ufZo0X6zsNoanKItjismh325vgv5K38Wuc=')
+          pathlib.Path('/tmp/update-public.der').write_bytes(pub)
+          manifests = list(pathlib.Path('.').glob('update-*.json'))
+          assert len(manifests) == 3
+          for manifest in manifests:
+            m = json.loads(manifest.read_text())
+            assert m['version'] == '0.2.4'
+            assert m['url'].startswith('https://github.com/kyocn/YunTools/releases/download/v0.2.4/')
+            archive = pathlib.Path(m['url'].rsplit('/',1)[1])
+            assert archive.stat().st_size == m['size']
+            pathlib.Path('/tmp/update-digest').write_bytes(hashlib.sha256(archive.read_bytes()).digest())
+            pathlib.Path('/tmp/update-signature').write_bytes(base64.b64decode(m['signature']))
+            subprocess.run(['openssl','pkeyutl','-verify','-rawin','-pubin','-keyform','DER','-inkey','/tmp/update-public.der','-in','/tmp/update-digest','-sigfile','/tmp/update-signature'],check=True)
+          PY
+      - name: Wait for tagged source validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_COMMIT: 05addf040f0e38320c24abba5ccab515942f527d
+        run: |
+          set -eu
+          test "$(gh api repos/kyocn/YunTools/git/ref/tags/v0.2.4 --jq .object.sha)" = "$SOURCE_COMMIT"
+          for attempt in $(seq 1 40); do
+            state=$(gh api "repos/kyocn/YunTools/actions/runs?head_sha=$SOURCE_COMMIT&event=push&per_page=100" --jq '[.workflow_runs[] | select(.name == "Release")] | sort_by(.id) | last | if . == null then "pending" elif .status != "completed" then "pending" else .conclusion end')
+            if [ "$state" = success ]; then exit 0; fi
+            if [ "$state" != pending ]; then echo "Source validation failed: $state"; exit 1; fi
+            sleep 15
+          done
+          echo 'Source validation timed out'; exit 1
+      - name: Upload, verify downloaded assets, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          if gh release view v0.2.4 --json isDraft > /tmp/release.json; then
+            test "$(jq -r .isDraft /tmp/release.json)" = true || { echo 'Release already published; refusing to overwrite'; exit 1; }
+          else
+            gh release create v0.2.4 --verify-tag --draft --title 'YunTools v0.2.4' --notes-file release-notes.md
+          fi
+          gh release upload v0.2.4 assets/*
+          mkdir /tmp/release-download
+          gh release download v0.2.4 --dir /tmp/release-download
+          cmp assets/SHA256SUMS /tmp/release-download/SHA256SUMS
+          (cd /tmp/release-download && sha256sum --check SHA256SUMS)
+          test "$(gh release view v0.2.4 --json assets --jq '.assets | length')" = 10
+          gh release edit v0.2.4 --draft=false --latest --notes-file release-notes.md
+          gh release view v0.2.4 --json url,isDraft,isPrerelease,assets --jq '{url,isDraft,isPrerelease,assets:[.assets[].name]}'

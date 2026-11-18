@@ -1,0 +1,8 @@
+{
+  "version": "0.2.4",
+  "notes": "- 新增腾讯云：COS 对象存储、DNSPod 解析、数据库与安全组白名单，以及基于 DNS 的证书申请。\n- 新增七牛云对象存储。域名、证书和白名单会标明当前不可用，并提示改用阿里云或腾讯云。\n- 外观默认跟随系统。授权页和主界面使用同一主题，也可以固定为浅色或深色。\n- 切换账号时留在当前页面。对象存储等资源页按账号分开保存标签；概览、设置和云账号不再附带账号名。\n- 腾讯云下载中断后可以继续；七牛云下载会跟随取消。上传确认按云厂商显示 `oss://`、`cos://` 或 `kodo://`。",
+  "date": "2026-11-18T09:29:55Z",
+  "url": "https://github.com/kyocn/YunTools/releases/download/v0.2.4/yuntools-0.2.4-windows-amd64.tar.gz",
+  "size": 9532624,
+  "signature": "YQ5eagFpJjiTfIrIj/q75aBIyIwgNZ6PUCVzLexPwHERU7HaBR+rDf1o70WzHZjOA+w5Vc5799+yAEPLyZxfAA=="
+}
