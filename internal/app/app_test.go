@@ -212,7 +212,11 @@ func TestVisualScreens(t *testing.T) {
 			a := New(Platform{Store: &memStore{}, Version: "0.2.0", UpdateStatus: func() UpdateStatus {
 				return UpdateStatus{Enabled: true, Automatic: true, Repository: "kyocn/YunTools"}
 			}, CheckUpdates: func() {}, SetAutomaticUpdates: func(bool) {}})
-			a.dark = dark
+			if dark {
+				a.appearance = appearanceDark
+			} else {
+				a.appearance = appearanceLight
+			}
 			a.page = page
 			a.accountID = "visual-test"
 			a.profiles = []cloud.Account{{ID: "visual-test", Name: "示例账号（视觉测试）", Provider: "aliyun", Region: "cn-hangzhou"}}

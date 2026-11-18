@@ -78,7 +78,7 @@ func ossDataRow(c *ui.Context, key string, fn func()) {
 }
 func (a *App) bucketTable(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	widths := []float32{0, 110, 85, 152}
+	widths := []float32{0, 168, 72, 148}
 	filtered := make([]cloud.Bucket, 0, len(a.buckets))
 	for _, b := range cloud.NewestFirst(a.buckets, func(b cloud.Bucket) time.Time { return b.Created }) {
 		if matches(a.search, b.Name, b.Region) {
@@ -99,7 +99,9 @@ func (a *App) bucketTable(c *ui.Context) {
 						a.refreshOSS(false)
 					}
 				})
-				ossCell(c, widths[1]).Children(func() { ui.Text(c, b.Region).FontSize(12).TextColor(p.Muted) })
+				ossCell(c, widths[1]).Children(func() {
+					ui.Text(c, resourceRegionNameForProvider(a.currentProvider(), b.Region)).FontSize(12).TextColor(p.Muted).SingleLine()
+				})
 				ossCell(c, widths[2]).Children(func() { ui.Text(c, b.StorageClass).FontSize(12).TextColor(p.Muted) })
 				ossCell(c, widths[3]).Children(func() { ui.Text(c, formatTimestamp(b.Created)).FontSize(12).TextColor(p.Muted) })
 			})

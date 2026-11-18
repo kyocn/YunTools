@@ -30,18 +30,18 @@ func friendlyError(detail string) string {
 		message = "暂时无法访问已保存的账号。请解锁系统钥匙串，并允许 YunTools 访问后重新打开应用。"
 	case has("invalidsecuritytoken", "securitytokenexpired", "expiredtoken"):
 		message = "临时凭证无效或已过期。请在「账号管理」中更新临时凭证后重试。"
-	case has("invalidaccesskeyid", "invalidaccesskey", "accesskeyidnotfound"):
-		message = "阿里云无法识别这个 AccessKey ID。请在「账号管理」中检查是否填写正确，以及密钥是否已启用。"
+	case has("invalidaccesskeyid", "invalidaccesskey", "accesskeyidnotfound", "secretidnotfound"):
+		message = "云服务无法识别这个 AccessKey ID。请打开「账号管理」，检查密钥是否填对、是否已启用。"
 	case has("signaturedoesnotmatch", "signature mismatch", "incompletesignature"):
-		message = "账号验证没有通过。请在「账号管理」中核对 AccessKey ID 与 AccessKey Secret 是否配套，并检查电脑时间是否准确。"
+		message = "账号验证没有通过。请核对 AccessKey ID 与 AccessKey Secret 是否成对，并检查电脑时间是否准确。"
 	case has("previous managed rule cleanup failed", "previous managed ip cleanup failed"):
 		message = "新 IP 已核验，但旧受管记录的清理尚未确认。请先刷新规则列表核对，按下方信息检查权限或网络，再次同步可继续核验与清理。"
-	case has("forbidden", "accessdenied", "unauthorized", "nopermission"):
-		message = "当前账号没有执行此操作的权限。请联系阿里云账号管理员，按下方信息检查访问权限（RAM）和允许操作的资源范围。"
-	case has("account credentials are required", "name, access key id and secret are required", "oss requires account", "cloud account required", "cloud account is required"):
-		message = "账号信息不完整。请打开「账号管理」，填写账号名称、AccessKey ID 和 AccessKey Secret，再选择该账号。"
-	case has("unsupported provider"):
-		message = "目前只支持阿里云账号。请在「账号管理」中选择阿里云，并填写对应的账号信息。"
+	case has("forbidden", "accessdenied", "unauthorized", "nopermission", "authfailure"):
+		message = "当前账号没有执行此操作的权限。请联系云账号管理员，按下方信息检查访问权限和允许操作的资源范围。"
+	case has("account credentials are required", "name, access key id and secret are required", "oss requires account", "cloud account required", "cloud account is required", "qiniu kodo requires", "cos requires", "tencent cloud requires"):
+		message = "账号信息不完整。请打开「账号管理」，填写账号名称和对应云厂商的密钥，再选择该账号。"
+	case has("unsupported provider", "当前云厂商不支持"):
+		message = "当前云厂商不支持这项功能。对象存储三个云都可以；白名单、域名和证书请换用阿里云或腾讯云账号。"
 	case has("explicit tcp or udp protocol is required"):
 		message = "请选择要放行的连接协议：TCP 或 UDP。请根据所用服务的说明选择，不确定时先咨询服务器管理员。"
 	case has("ports must be start/end", "ports must be between 1 and 65535"):

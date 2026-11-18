@@ -31,7 +31,7 @@ func TestHistoryContextMenuClosesRelativeToClickedTab(t *testing.T) {
 			a.activeTab, a.page = tc.active, a.tabs[tc.active].Page
 			tt := ui.NewTester(a.View, 1280, 820)
 			tt.Frame()
-			if err := tt.RightClick("设置 · test"); err != nil {
+			if err := tt.RightClick("设置"); err != nil {
 				t.Fatal(err)
 			}
 			if err := tt.ChooseMenuItem(tc.action); err != nil {
@@ -86,7 +86,7 @@ func TestLegacyHistoryTabKeepsCurrentCloudAccount(t *testing.T) {
 			tt.Frame()
 			label := "云账号"
 			if closeCurrent {
-				label = "关闭标签：设置 · test"
+				label = "关闭标签：设置"
 			}
 			if err := tt.Click(label); err != nil {
 				t.Fatal(err)
@@ -110,7 +110,7 @@ func TestHistoryTabCloseKeepsActiveViewAndPersistsRemoval(t *testing.T) {
 	tt.Frame()
 	jobs := a.jobs
 	gen := a.generation
-	if err := tt.Click("关闭标签：云账号 · test"); err != nil {
+	if err := tt.Click("关闭标签：云账号"); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.tabs) != 2 || a.activeTab != 0 || a.page != "settings" || a.generation != gen {
@@ -123,7 +123,7 @@ func TestHistoryTabCloseKeepsActiveViewAndPersistsRemoval(t *testing.T) {
 	if len(restored.tabs) != 2 || restored.tabs[0].Page != "settings" || restored.activeTab != 0 {
 		t.Fatalf("closed tab restored: %+v", restored.tabs)
 	}
-	if err := tt.Click("关闭标签：设置 · test"); err != nil {
+	if err := tt.Click("关闭标签：设置"); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.tabs) != 1 || a.activeTab != 0 || a.page != "overview" {
@@ -134,7 +134,7 @@ func TestHistoryTabCloseKeepsActiveViewAndPersistsRemoval(t *testing.T) {
 	if applied {
 		t.Fatal("closed view accepted a stale result")
 	}
-	if err := tt.Click("关闭标签：概览 · test"); err != nil {
+	if err := tt.Click("关闭标签：概览"); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.tabs) != 0 || a.activeTab != -1 || a.page != "overview" || a.accountID != "a" || a.jobs != jobs {
@@ -148,6 +148,31 @@ func TestHistoryTabCloseKeepsActiveViewAndPersistsRemoval(t *testing.T) {
 	}
 }
 
+func TestSelectAccountKeepsThePageAndSeparatesResourceTabs(t *testing.T) {
+	a := New(Platform{Store: &memStore{}, Storage: func(cloud.Account) (cloud.ObjectStorage, error) {
+		return nil, cloud.ErrNotFound
+	}})
+	defer a.Close()
+	a.profiles = []cloud.Account{{ID: "a", Name: "甲", Region: "cn-beijing"}, {ID: "b", Name: "乙", Region: "ap-guangzhou"}}
+	a.accountID, a.page = "a", "oss"
+	a.tabs = []tab{{AccountID: "a", Page: "oss", Label: "对象存储"}}
+	a.activeTab = 0
+	a.selectAccount("b")
+	if a.accountID != "b" || a.page != "oss" || len(a.tabs) != 2 || a.tabs[1].AccountID != "b" || a.activeTab != 1 {
+		t.Fatalf("new account did not keep object storage: %+v active=%d page=%s account=%s", a.tabs, a.activeTab, a.page, a.accountID)
+	}
+	if a.tabs[0].AccountID != "a" {
+		t.Fatal("previous account tab was overwritten")
+	}
+	a.selectAccount("a")
+	if a.accountID != "a" || a.activeTab != 0 || len(a.tabs) != 2 {
+		t.Fatalf("returning to the first account created another tab: %+v active=%d", a.tabs, a.activeTab)
+	}
+	if a.tabLabel(a.tabs[0]) != "对象存储 · 甲" || a.tabLabel(a.tabs[1]) != "对象存储 · 乙" {
+		t.Fatalf("labels: %q %q", a.tabLabel(a.tabs[0]), a.tabLabel(a.tabs[1]))
+	}
+}
+
 func TestClosingCurrentHistoryTabSwitchesToNeighborAccount(t *testing.T) {
 	a := New(Platform{Store: &memStore{}})
 	defer a.Close()
@@ -158,7 +183,7 @@ func TestClosingCurrentHistoryTabSwitchesToNeighborAccount(t *testing.T) {
 	a.objects = []cloud.Object{{Key: "other-account-object"}}
 	tt := ui.NewTester(a.View, 1280, 820)
 	tt.Frame()
-	if err := tt.Click("关闭标签：设置 · second"); err != nil {
+	if err := tt.Click("关闭标签：设置"); err != nil {
 		t.Fatal(err)
 	}
 	if a.accountID != "a" || a.page != "accounts" || a.region != "cn-beijing" || a.activeTab != 0 || len(a.objects) != 0 {

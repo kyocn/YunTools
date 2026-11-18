@@ -71,7 +71,11 @@ func TestDNSRecordTableVisualScreens(t *testing.T) {
 	for _, dark := range []bool{true, false} {
 		for _, width := range []int{960, 1280} {
 			a := dnsTableFixture()
-			a.dark = dark
+			if dark {
+				a.appearance = appearanceDark
+			} else {
+				a.appearance = appearanceLight
+			}
 			tt := ui.NewTester(a.View, width, 820)
 			tt.Frame()
 			file, err := os.Create(filepath.Join(dir, fmt.Sprintf("dns-records-%t-%d.png", dark, width)))

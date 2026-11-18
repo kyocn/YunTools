@@ -90,6 +90,15 @@ func TestValidationAndConcurrentSaves(t *testing.T) {
 			t.Fatal("invalid accepted")
 		}
 	}
+	for _, provider := range []string{cloud.ProviderTencent, cloud.ProviderQiniu} {
+		saved, e := m.Save(cloud.Account{Name: provider + "-acct", Provider: provider, Region: "ap-guangzhou", AccessKeyID: "id", AccessKeySecret: "secret"})
+		if e != nil || saved.Provider != provider {
+			t.Fatalf("failed to save %s account: %v", provider, e)
+		}
+		if e := m.Delete(saved.ID); e != nil {
+			t.Fatalf("failed to delete %s account: %v", provider, e)
+		}
+	}
 	var wg sync.WaitGroup
 	for i := 0; i < 15; i++ {
 		wg.Add(1)

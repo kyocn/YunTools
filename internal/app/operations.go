@@ -90,11 +90,11 @@ func (a *App) refreshTargets() {
 	kind, region := a.resourceKind, a.region
 	if region == "" {
 		a.targetDiscovery.failed = true
-		a.targetDiscovery.message = "请填写资源所在地域，例如上海 cn-shanghai、北京 cn-beijing。"
+		a.targetDiscovery.message = "请先选择资源所在地域，再加载。地域要和实例实际所在地一致。"
 		return
 	}
 	scope, request := a.targetDiscovery.scope, a.targetDiscovery.request
-	label := resourceRegionName(region) + " · " + resourceKindName(kind)
+	label := resourceRegionNameForProvider(p.Provider, region) + " · " + resourceKindNameForProvider(p.Provider, kind)
 	a.targetDiscovery.loading = true
 	a.targetDiscovery.message = "正在加载 " + label + "，请稍候…"
 	a.asyncGlobal(func(ctx context.Context) (func(), error) {
@@ -328,7 +328,8 @@ func (a *App) pickUploads(folder bool) {
 			if len(trs) == 0 {
 				return
 			}
-			a.confirm = &confirmation{Title: "确认上传", Detail: fmt.Sprintf("账号：%s\n目标：oss://%s/%s\n上传 %d 个文件；同名对象会被覆盖。", p.Name, bucket, prefix, len(trs)), Run: func() {
+			scheme := cloud.ProviderStorageScheme(p.Provider)
+			a.confirm = &confirmation{Title: "确认上传", Detail: fmt.Sprintf("账号：%s\n目标：%s://%s/%s\n上传 %d 个文件；同名对象会被覆盖。", p.Name, scheme, bucket, prefix, len(trs)), Run: func() {
 				for _, tr := range trs {
 					a.submitTransfer("upload", p, tr)
 				}
@@ -450,11 +451,14 @@ func (a *App) saveForm() {
 	switch f.Kind {
 	case "account":
 		p.Name = v["name"]
-		p.Provider = "aliyun"
+		p.Provider = cloud.NormalizeProvider(v["provider"])
 		p.Region = v["region"]
 		p.AccessKeyID = v["ak"]
 		p.AccessKeySecret = v["secret"]
 		p.SecurityToken = v["token"]
+		if p.Provider == cloud.ProviderQiniu {
+			p.SecurityToken = ""
+		}
 		a.async(func(ctx context.Context) (func(), error) {
 			saved, e := a.accounts.Save(p)
 			if e != nil {
@@ -667,9 +671,20 @@ func (a *App) autoTick() {
 	a.autoNext = time.Now().Add(time.Minute)
 	var targets []cloud.Target
 	for _, t := range a.rules {
-		if t.Automatic {
-			targets = append(targets, t)
+		if !t.Automatic {
+			continue
 		}
+		supported := true
+		for _, p := range a.profiles {
+			if p.ID == t.AccountID {
+				supported = cloud.ProviderSupportsWhitelist(p.Provider)
+				break
+			}
+		}
+		if !supported {
+			continue
+		}
+		targets = append(targets, t)
 	}
 	if len(targets) > 0 && a.busy == 0 {
 		a.addWhitelist(targets, true)

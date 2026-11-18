@@ -8,6 +8,21 @@ import (
 	"yuntools/internal/tasks"
 )
 
+func TestAppearanceFollowsSystemUnlessChosen(t *testing.T) {
+	a := &App{appearance: appearanceAuto}
+	if !a.resolvedDark(true) || a.resolvedDark(false) {
+		t.Fatal("auto appearance ignored the system theme")
+	}
+	a.appearance = appearanceLight
+	if a.resolvedDark(true) {
+		t.Fatal("light appearance stayed dark")
+	}
+	a.appearance = appearanceDark
+	if !a.resolvedDark(false) {
+		t.Fatal("dark appearance followed a light system")
+	}
+}
+
 func TestRenewalScheduleUsesActualLifetimeAndAvoidsDuplicates(t *testing.T) {
 	now := time.Now()
 	cert := certificates.Certificate{ID: "cert", AccountID: "a", ExpiresAt: now.Add(20 * time.Hour), RenewAfter: now.Add(-time.Hour)}

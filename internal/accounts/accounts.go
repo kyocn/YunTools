@@ -53,10 +53,8 @@ func (m *Manager) Save(a cloud.Account) (cloud.Account, error) {
 	a.Provider = strings.TrimSpace(a.Provider)
 	a.Region = strings.TrimSpace(a.Region)
 	a.AccessKeyID = strings.TrimSpace(a.AccessKeyID)
-	if a.Provider == "" {
-		a.Provider = "aliyun"
-	}
-	if a.Provider != "aliyun" {
+	a.Provider = cloud.NormalizeProvider(a.Provider)
+	if !cloud.SupportedProvider(a.Provider) {
 		return cloud.Account{}, errors.New("unsupported provider")
 	}
 	if a.Name == "" || a.AccessKeyID == "" || strings.TrimSpace(a.AccessKeySecret) == "" {

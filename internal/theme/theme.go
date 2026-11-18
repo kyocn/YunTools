@@ -16,10 +16,12 @@ func Space(n float32) float32 { return n * 4 }
 type Palette struct{ BG, Sidebar, Card, Field, Line, Text, Muted, Accent, Green, Orange, Red ui.Color }
 
 func Colors(dark bool) Palette {
+	// Canvas, sidebar and inset follow the same quiet split as SSHYard:
+	// the sidebar is a step darker than the page, cards sit on the canvas.
 	if dark {
-		return Palette{ui.Hex("#191B20"), ui.Hex("#22252C"), ui.Hex("#24272F"), ui.Hex("#2D313B"), ui.Hex("#363B47"), ui.Hex("#F1F3F8"), ui.Hex("#939BAD"), Accent, ui.Hex("#43C99A"), ui.Hex("#F0AE54"), ui.Hex("#F5727C")}
+		return Palette{ui.Hex("#1E1E20"), ui.Hex("#28282A"), ui.Hex("#2A2A2D"), ui.Hex("#333336"), ui.Hex("#3A3A3D"), ui.Hex("#F5F5F7"), ui.Hex("#98989D"), Accent, ui.Hex("#30D158"), ui.Hex("#FF9F0A"), ui.Hex("#FF453A")}
 	}
-	return Palette{ui.Hex("#F5F6FA"), ui.Hex("#EDEFF5"), ui.Hex("#FFFFFF"), ui.Hex("#F0F2F7"), ui.Hex("#DFE3EC"), ui.Hex("#202533"), ui.Hex("#738097"), Accent, ui.Hex("#16875D"), ui.Hex("#B97916"), ui.Hex("#CB384A")}
+	return Palette{ui.Hex("#F5F5F7"), ui.Hex("#EDEDF0"), ui.Hex("#FFFFFF"), ui.Hex("#F2F2F4"), ui.Hex("#DCDCE0"), ui.Hex("#1D1D1F"), ui.Hex("#67676C"), Accent, ui.Hex("#24A148"), ui.Hex("#D97E00"), ui.Hex("#E5342A")}
 }
 func Apply(base ui.Theme, dark bool) *ui.Theme {
 	p := Colors(dark)
@@ -27,13 +29,13 @@ func Apply(base ui.Theme, dark bool) *ui.Theme {
 	base.Background = p.BG
 	base.Surface = p.Field
 	base.SurfaceHover = p.Line
-	base.SurfacePressed = p.Accent.Alpha(.2)
+	base.SurfacePressed = p.Accent.Alpha(.18)
 	base.Text = p.Text
 	base.TextMuted = p.Muted
 	base.Border = p.Line
 	base.Accent = p.Accent
-	base.AccentHover = ui.Hex("#3997FF")
-	base.AccentPressed = ui.Hex("#116ED8")
+	base.AccentHover = ui.Hex("#2A8DFC")
+	base.AccentPressed = ui.Hex("#1570D6")
 	base.AccentText = ui.Hex("#FFFFFF")
 	base.Selection = p.Accent.Alpha(.22)
 	base.Focus = p.Accent

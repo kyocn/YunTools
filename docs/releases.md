@@ -1,6 +1,6 @@
 # 版本与 GitHub 更新
 
-更新仓库：<https://github.com/kyocn/YunTools>。`mygo.json` 是版本号的唯一来源；应用通过编译时嵌入该配置显示版本，MyGo 用同一配置生成更新包。当前版本 `0.2.3`。
+更新仓库：<https://github.com/kyocn/YunTools>。`mygo.json` 是版本号的唯一来源；应用通过编译时嵌入该配置显示版本，MyGo 用同一配置生成更新包。当前版本 `0.2.4`。
 
 ## 使用
 

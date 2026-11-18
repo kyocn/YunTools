@@ -1,6 +1,10 @@
 package app
 
-import "strings"
+import (
+	"strings"
+
+	"yuntools/internal/cloud"
+)
 
 type discoveryState struct {
 	request uint64
@@ -11,13 +15,29 @@ type discoveryState struct {
 }
 
 func resourceKindName(kind string) string {
+	return resourceKindNameForProvider(cloud.ProviderAliyun, kind)
+}
+
+func resourceKindNameForProvider(provider, kind string) string {
+	if cloud.NormalizeProvider(provider) == cloud.ProviderTencent {
+		switch kind {
+		case "rds":
+			return "云数据库 MySQL"
+		case "redis":
+			return "缓存 Redis"
+		case "ecs":
+			return "VPC 安全组"
+		default:
+			return kind
+		}
+	}
 	switch kind {
 	case "rds":
 		return "云数据库 RDS"
 	case "redis":
 		return "缓存 Redis"
 	case "ecs":
-		return "服务器安全组 ECS"
+		return "服务器安全组"
 	default:
 		return kind
 	}
@@ -41,5 +61,6 @@ func (a *App) targetDiscoveryText() string {
 	if a.accountID == "" {
 		return "请先选择云账号，再加载该账号指定地域的资源。"
 	}
-	return "查询范围：" + resourceRegionName(strings.TrimSpace(a.region)) + " · " + resourceKindName(a.resourceKind) + "。点击“加载资源”开始查询；已配置目标可来自其他地域。"
+	provider := a.currentProvider()
+	return "查询范围：" + resourceRegionNameForProvider(provider, strings.TrimSpace(a.region)) + " · " + resourceKindNameForProvider(provider, a.resourceKind) + "。点击“加载资源”开始查询；已配置目标可来自其他地域。"
 }

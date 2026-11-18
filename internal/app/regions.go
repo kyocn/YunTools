@@ -1,6 +1,9 @@
 package app
 
-import "github.com/egoist/mygo/ui"
+import (
+	"github.com/egoist/mygo/ui"
+	"yuntools/internal/cloud"
+)
 
 type regionOption struct{ code, name string }
 
@@ -24,8 +27,57 @@ var publicRegions = []regionOption{
 	{"na-south-1", "墨西哥"}, {"sa-east-1", "圣保罗"},
 }
 
+var tencentRegions = []regionOption{
+	{"ap-guangzhou", "广州"}, {"ap-shanghai", "上海"}, {"ap-beijing", "北京"},
+	{"ap-chengdu", "成都"}, {"ap-chongqing", "重庆"}, {"ap-nanjing", "南京"},
+	{"ap-hongkong", "中国香港"}, {"ap-singapore", "新加坡"}, {"ap-bangkok", "曼谷"},
+	{"ap-jakarta", "雅加达"}, {"ap-tokyo", "东京"}, {"ap-seoul", "首尔"},
+	{"na-siliconvalley", "硅谷"}, {"na-ashburn", "弗吉尼亚"}, {"na-toronto", "多伦多"},
+	{"eu-frankfurt", "法兰克福"}, {"sa-saopaulo", "圣保罗"},
+}
+
+var qiniuRegions = []regionOption{
+	{"z0", "华东-浙江"},
+	{"cn-east-2", "华东-浙江2"},
+	{"z1", "华北-河北"},
+	{"z2", "华南-广东"},
+	{"na0", "北美-洛杉矶"},
+	{"as0", "亚太-新加坡"},
+	{"ap-northeast-1", "亚太-首尔"},
+}
+
+func defaultRegionForProvider(provider string) string {
+	switch cloud.NormalizeProvider(provider) {
+	case cloud.ProviderTencent:
+		return "ap-guangzhou"
+	case cloud.ProviderQiniu:
+		return "z0"
+	default:
+		return "cn-hangzhou"
+	}
+}
+
+func regionsForProvider(provider string) []regionOption {
+	switch cloud.NormalizeProvider(provider) {
+	case cloud.ProviderTencent:
+		return tencentRegions
+	case cloud.ProviderQiniu:
+		return qiniuRegions
+	default:
+		return publicRegions
+	}
+}
+
 func resourceRegionName(region string) string {
-	for _, option := range publicRegions {
+	return resourceRegionNameForProvider(cloud.ProviderAliyun, region)
+}
+
+func (a *App) regionLabel(region string) string {
+	return resourceRegionNameForProvider(a.currentProvider(), region)
+}
+
+func resourceRegionNameForProvider(provider, region string) string {
+	for _, option := range regionsForProvider(provider) {
 		if option.code == region {
 			return option.name + "（" + region + "）"
 		}
@@ -36,10 +88,15 @@ func resourceRegionName(region string) string {
 // regionSelect exposes readable names while binding only the original API code.
 // Its returned Element supports the same Changed/Disabled/width API as Select.
 func regionSelect(c *ui.Context, code *string) ui.Element {
-	options := make([]string, 0, len(publicRegions)+1)
-	labelsToCodes := make(map[string]string, len(publicRegions)+1)
+	return regionSelectForProvider(c, cloud.ProviderAliyun, code)
+}
+
+func regionSelectForProvider(c *ui.Context, provider string, code *string) ui.Element {
+	catalog := regionsForProvider(provider)
+	options := make([]string, 0, len(catalog)+1)
+	labelsToCodes := make(map[string]string, len(catalog)+1)
 	selected := ""
-	for _, option := range publicRegions {
+	for _, option := range catalog {
 		label := option.name + "（" + option.code + "）"
 		options = append(options, label)
 		labelsToCodes[label] = option.code

@@ -202,7 +202,11 @@ func TestVisualObjectLinkForm(t *testing.T) {
 	}
 	for _, dark := range []bool{false, true} {
 		a := newLinkTestApp(t, Platform{CopyText: func(string) error { return nil }})
-		a.dark = dark
+		if dark {
+			a.appearance = appearanceDark
+		} else {
+			a.appearance = appearanceLight
+		}
 		a.openObjectLink(a.objects[0])
 		for _, width := range []int{960, 1280} {
 			tt := ui.NewTester(a.View, width, 820)

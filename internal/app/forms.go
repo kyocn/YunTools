@@ -11,14 +11,15 @@ import (
 )
 
 func (a *App) editAccount(p cloud.Account) {
+	p.Provider = cloud.NormalizeProvider(p.Provider)
 	if p.Region == "" {
-		p.Region = "cn-hangzhou"
+		p.Region = defaultRegionForProvider(p.Provider)
 	}
 	title := "添加云账号"
 	if p.ID != "" {
 		title = "编辑云账号"
 	}
-	a.dialog = &form{Kind: "account", Title: title, Account: p, Fields: map[string]string{"name": p.Name, "region": p.Region, "ak": p.AccessKeyID, "secret": p.AccessKeySecret, "token": p.SecurityToken}}
+	a.dialog = &form{Kind: "account", Title: title, Account: p, Fields: map[string]string{"provider": p.Provider, "name": p.Name, "region": p.Region, "ak": p.AccessKeyID, "secret": p.AccessKeySecret, "token": p.SecurityToken}}
 }
 func (a *App) validateAccount(p cloud.Account) {
 	a.async(func(ctx context.Context) (func(), error) {
@@ -27,8 +28,9 @@ func (a *App) validateAccount(p cloud.Account) {
 			return nil, e
 		}
 		b, e := c.ListBuckets(ctx)
+		scheme := strings.ToUpper(cloud.ProviderStorageScheme(p.Provider))
 		return func() {
-			a.notice = fmt.Sprintf("%s：OSS 连接成功，发现 %d 个 Bucket。其他产品权限在访问时验证。", p.Name, len(b))
+			a.notice = fmt.Sprintf("%s：%s 连接成功，发现 %d 个 Bucket。其他产品权限在访问时验证。", p.Name, scheme, len(b))
 		}, e
 	})
 }
@@ -80,6 +82,8 @@ func (a *App) dialogView(c *ui.Context) {
 			})
 			if f.Kind != "account" {
 				ui.Text(c, "账号："+f.Account.Name).FontSize(11).TextColor(p.Muted)
+			} else {
+				ui.Text(c, accountFormHint(f.Fields["provider"])).FillWidth().FontSize(12).TextColor(p.Muted)
 			}
 			if f.Kind == "whitelist" && a.err != "" {
 				ui.Text(c, a.err).FillWidth().MaxLines(3).FontSize(12).TextColor(p.Red).Selectable().Tooltip(a.err)
@@ -87,7 +91,26 @@ func (a *App) dialogView(c *ui.Context) {
 			var specs []fieldSpec
 			switch f.Kind {
 			case "account":
-				specs = []fieldSpec{{key: "name", label: "账号名称", placeholder: "例如：生产环境 / 个人账号"}, {key: "region", label: "默认地域", placeholder: "cn-hangzhou"}, {key: "ak", label: "AccessKey ID", placeholder: "RAM 用户 AccessKey ID", secret: true}, {key: "secret", label: "AccessKey Secret", placeholder: "仅加密保存到本机", secret: true}, {key: "token", label: "STS Token（可选）", placeholder: "临时凭据的 SecurityToken", secret: true}}
+				prov := cloud.NormalizeProvider(f.Fields["provider"])
+				akLabel, akPlaceholder := "AccessKey ID", "RAM 用户 AccessKey ID"
+				skLabel := "AccessKey Secret"
+				if prov == cloud.ProviderTencent {
+					akLabel, akPlaceholder = "SecretId", "腾讯云 API SecretId"
+					skLabel = "SecretKey"
+				} else if prov == cloud.ProviderQiniu {
+					akLabel, akPlaceholder = "AccessKey (AK)", "七牛云控制台密钥管理中的 AK"
+					skLabel = "SecretKey (SK)"
+				}
+				specs = []fieldSpec{
+					{key: "provider", label: "云厂商", readOnly: f.Account.ID != ""},
+					{key: "name", label: "账号名称", placeholder: "例如：生产环境 / 个人账号"},
+					{key: "region", label: "默认地域", placeholder: defaultRegionForProvider(prov)},
+					{key: "ak", label: akLabel, placeholder: akPlaceholder, secret: true},
+					{key: "secret", label: skLabel, placeholder: "仅加密保存到本机", secret: true},
+				}
+				if prov != cloud.ProviderQiniu {
+					specs = append(specs, fieldSpec{key: "token", label: "STS Token（可选）", placeholder: "临时凭据的 SecurityToken", secret: true})
+				}
 			case "bucket":
 				specs = []fieldSpec{{key: "name", label: "Bucket 名称", placeholder: "全局唯一的小写名称"}, {key: "region", label: "地域", placeholder: "cn-hangzhou"}}
 			case "directory":
@@ -106,7 +129,7 @@ func (a *App) dialogView(c *ui.Context) {
 				specs = []fieldSpec{{key: "name", label: "目标名称"}, {key: "sourceIP", label: "指定 IP（可选）", placeholder: "例如 203.0.113.10，留空使用页面当前 IP"}, {key: "kind", label: "资源类型", readOnly: true}, {key: "id", label: "资源 ID", readOnly: true}, {key: "region", label: "地域", readOnly: true}}
 				if f.Fields["kind"] == "ecs" {
 					specs = append(specs, fieldSpec{key: "protocol", label: "协议（tcp / udp）"}, fieldSpec{key: "ports", label: "目的端口范围", placeholder: "22/22 或 443/443"})
-				} else {
+				} else if cloud.NormalizeProvider(f.Account.Provider) != cloud.ProviderTencent {
 					specs = append(specs, fieldSpec{key: "group", label: "白名单分组", placeholder: "yuntools"})
 				}
 			case "certificate":
@@ -120,10 +143,39 @@ func (a *App) dialogView(c *ui.Context) {
 							ui.Text(c, spec.label).FontSize(12).TextColor(p.Muted)
 							value := f.Fields[spec.key]
 							var input ui.Element
-							if spec.key == "type" {
+							if spec.key == "provider" {
+								if spec.readOnly {
+									display := cloud.ProviderDisplayName(value)
+									input = ui.TextInput(c, &display)
+								} else {
+									providerOptions := []string{"阿里云", "腾讯云", "七牛云"}
+									providerCodes := map[string]string{
+										"阿里云": cloud.ProviderAliyun,
+										"腾讯云": cloud.ProviderTencent,
+										"七牛云": cloud.ProviderQiniu,
+									}
+									selected := cloud.ProviderDisplayName(value)
+									input = ui.Select(c, &selected, providerOptions)
+									if input.Changed() {
+										if code, ok := providerCodes[selected]; ok {
+											prev := cloud.NormalizeProvider(f.Fields["provider"])
+											value = code
+											f.Fields["provider"] = code
+											f.Account.Provider = code
+											if f.Fields["region"] == "" || f.Fields["region"] == defaultRegionForProvider(prev) {
+												f.Fields["region"] = defaultRegionForProvider(code)
+											}
+										}
+									}
+								}
+							} else if spec.key == "type" {
 								input = ui.Select(c, &value, []string{"A", "AAAA", "CNAME", "TXT", "MX", "CAA", "NS", "SRV"})
 							} else if spec.key == "region" && !spec.readOnly {
-								input = regionSelect(c, &value)
+								prov := f.Account.Provider
+								if f.Kind == "account" {
+									prov = f.Fields["provider"]
+								}
+								input = regionSelectForProvider(c, prov, &value)
 							} else if spec.multiline {
 								input = ui.TextArea(c, &value).Height(90)
 							} else {
@@ -148,7 +200,7 @@ func (a *App) dialogView(c *ui.Context) {
 										f.Fields["automatic"] = "false"
 									}
 								}
-								ui.Text(c, "关闭时使用指定 IP；开启后自动更新为当前公网 IP。相同资源和端口可配置多个不同 IP。").FillWidth().FontSize(11).TextColor(p.Muted)
+								ui.Text(c, whitelistIPHelp(f.Account.Provider, f.Fields["kind"])).FillWidth().FontSize(11).TextColor(p.Muted)
 							}
 						})
 					}
@@ -162,7 +214,10 @@ func (a *App) dialogView(c *ui.Context) {
 					}
 
 					if f.Kind == "whitelist" && f.OriginalTarget != nil {
-						ui.Text(c, "仅修改本机配置，供后续加白使用。账号、资源和地域不变。修改端口或分组会建立新的托管配置；原云端规则保留。").FontSize(11).TextColor(p.Muted)
+						ui.Text(c, "这里只改这台电脑上的配置，云上已经放行的规则不会动。账号、资源和地域也不能在这里改。").FontSize(11).TextColor(p.Muted)
+					}
+					if f.Kind == "whitelist" && cloud.NormalizeProvider(f.Account.Provider) == cloud.ProviderTencent && f.Fields["kind"] != "ecs" {
+						ui.Text(c, "腾讯云通过实例已绑定的安全组放行，不需要单独的白名单分组。").FontSize(11).TextColor(p.Muted)
 					}
 				})
 			})
@@ -221,4 +276,25 @@ func (a *App) confirmView(c *ui.Context) {
 	if !open {
 		a.confirm = nil
 	}
+}
+
+func accountFormHint(provider string) string {
+	switch cloud.NormalizeProvider(provider) {
+	case cloud.ProviderTencent:
+		return "腾讯云可以管理存储、安全组白名单、域名和证书。SecretId 和 SecretKey 要成对填写。"
+	case cloud.ProviderQiniu:
+		return "七牛云目前可以管理对象存储。AK 和 SK 在控制台的密钥管理里。"
+	default:
+		return "阿里云可以管理存储、白名单、域名和证书。AccessKey 使用 RAM 用户的密钥。"
+	}
+}
+
+func whitelistIPHelp(provider, kind string) string {
+	if cloud.NormalizeProvider(provider) == cloud.ProviderTencent {
+		return "留空就用页面上的当前 IP。自动跟随时，新 IP 生效后会清理本工具添加的旧规则。"
+	}
+	if kind == "ecs" {
+		return "留空就用页面上的当前 IP。相同资源和端口可以保存多个不同地址。"
+	}
+	return "留空就用页面上的当前 IP。自动跟随会写到本工具自己的分组，原来分组里的地址会保留。"
 }

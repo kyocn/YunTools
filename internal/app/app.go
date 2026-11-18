@@ -17,6 +17,9 @@ import (
 	"yuntools/internal/cloud"
 	"yuntools/internal/providers/aliyun"
 	"yuntools/internal/providers/aliyunoss"
+	"yuntools/internal/providers/qiniukodo"
+	"yuntools/internal/providers/tencent"
+	"yuntools/internal/providers/tencentcos"
 	"yuntools/internal/tasks"
 )
 
@@ -71,6 +74,7 @@ type App struct {
 	busy                              int
 	err, notice                       string
 	dark, locked                      bool
+	appearance                        string
 	tabs                              []tab
 	activeTab                         int
 	showTasks                         bool
@@ -107,15 +111,43 @@ type App struct {
 
 func New(p Platform) *App {
 	ctx, cancel := context.WithCancel(context.Background())
-	a := &App{p: p, ctx: ctx, cancel: cancel, queue: make(chan func(), 256), page: "overview", dark: true, locked: true, selected: map[string]bool{}, resourceKind: "rds", region: "cn-hangzhou", targetRules: map[string][]string{}, activeTab: -1}
+	a := &App{p: p, ctx: ctx, cancel: cancel, queue: make(chan func(), 256), page: "overview", appearance: appearanceAuto, locked: true, selected: map[string]bool{}, resourceKind: "rds", region: "cn-hangzhou", targetRules: map[string][]string{}, activeTab: -1}
+	a.loadAppearanceFile()
 	if a.p.Storage == nil {
-		a.p.Storage = func(c cloud.Account) (cloud.ObjectStorage, error) { return aliyunoss.New(c) }
+		a.p.Storage = func(c cloud.Account) (cloud.ObjectStorage, error) {
+			switch cloud.NormalizeProvider(c.Provider) {
+			case cloud.ProviderTencent:
+				return tencentcos.New(c)
+			case cloud.ProviderQiniu:
+				return qiniukodo.New(c)
+			default:
+				return aliyunoss.New(c)
+			}
+		}
 	}
 	if a.p.DNS == nil {
-		a.p.DNS = func(c cloud.Account) (cloud.ChallengeDNS, error) { return aliyun.New(c) }
+		a.p.DNS = func(c cloud.Account) (cloud.ChallengeDNS, error) {
+			switch cloud.NormalizeProvider(c.Provider) {
+			case cloud.ProviderTencent:
+				return tencent.New(c)
+			case cloud.ProviderQiniu:
+				return nil, cloud.ErrUnsupportedProviderCapability
+			default:
+				return aliyun.New(c)
+			}
+		}
 	}
 	if a.p.Whitelist == nil {
-		a.p.Whitelist = func(c cloud.Account) (cloud.Whitelist, error) { return aliyun.New(c) }
+		a.p.Whitelist = func(c cloud.Account) (cloud.Whitelist, error) {
+			switch cloud.NormalizeProvider(c.Provider) {
+			case cloud.ProviderTencent:
+				return tencent.New(c)
+			case cloud.ProviderQiniu:
+				return nil, cloud.ErrUnsupportedProviderCapability
+			default:
+				return aliyun.New(c)
+			}
+		}
 	}
 	if p.Store != nil {
 		a.attach(p.Store)
@@ -243,6 +275,22 @@ func (a *App) switchAccount(id string) {
 		a.region = p.Region
 	}
 }
+
+// selectAccount switches the working account and keeps the current page.
+// Resource pages get their own tab per account, so the highlighted tab matches the data.
+func (a *App) selectAccount(id string) {
+	if id == "" || id == a.accountID {
+		return
+	}
+	page := a.page
+	a.switchAccount(id)
+	if pageUsesAccount(page) {
+		a.openPage(page)
+		return
+	}
+	a.refresh()
+	a.savePreferences()
+}
 func (a *App) resetResources() {
 	a.resetTargetDiscovery()
 	a.objectPager = objectPagination{}
@@ -306,19 +354,36 @@ func (a *App) safeError(e error) string {
 	}
 	return shortenError(friendlyError(s))
 }
+func pageUsesAccount(page string) bool {
+	switch page {
+	case "oss", "whitelist", "dns", "certificates":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *App) openPage(page string) {
 	defer a.savePreferences()
 	a.generation++
 	a.page = page
 	a.search = ""
+	accountID := ""
+	if pageUsesAccount(page) {
+		accountID = a.accountID
+	}
 	for i, t := range a.tabs {
-		if t.AccountID == a.accountID && t.Page == page {
+		samePage := t.Page == page
+		sameAccount := !pageUsesAccount(page) || t.AccountID == accountID
+		if samePage && sameAccount {
+			a.tabs[i].AccountID = accountID
+			a.tabs[i].Label = pageTitle(page)
 			a.activeTab = i
 			a.refresh()
 			return
 		}
 	}
-	a.tabs = append(a.tabs, tab{AccountID: a.accountID, Page: page, Label: pageTitle(page)})
+	a.tabs = append(a.tabs, tab{AccountID: accountID, Page: page, Label: pageTitle(page)})
 	a.activeTab = len(a.tabs) - 1
 	a.refresh()
 }
@@ -353,19 +418,35 @@ func (a *App) closeTabs(start, end int) {
 	}
 	a.savePreferences()
 }
+func (a *App) currentProvider() string {
+	for _, p := range a.profiles {
+		if p.ID == a.accountID {
+			return cloud.NormalizeProvider(p.Provider)
+		}
+	}
+	return cloud.ProviderAliyun
+}
+
 func (a *App) refresh() {
 	if a.locked {
 		return
 	}
+	provider := a.currentProvider()
 	switch a.page {
 	case "oss":
 		a.refreshOSS(false)
 	case "dns":
-		a.refreshDNS()
+		if cloud.ProviderSupportsDNS(provider) {
+			a.refreshDNS()
+		}
 	case "whitelist":
-		a.refreshTargets()
+		if cloud.ProviderSupportsWhitelist(provider) {
+			a.refreshTargets()
+		}
 	case "certificates":
-		a.refreshCertificates()
+		if cloud.ProviderSupportsCertificates(provider) {
+			a.refreshCertificates()
+		}
 	}
 }
 func (a *App) storageAccount() (cloud.Account, error) {

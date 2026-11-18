@@ -21,24 +21,25 @@ func (a *App) View(c *ui.Context) {
 	a.autoTick()
 	a.renewalTick()
 	c.After(250 * time.Millisecond)
+	a.dark = a.resolvedDark(c.Theme().Dark)
 	c.SetTheme(theme.Apply(*c.Theme(), a.dark))
 	p := theme.Colors(a.dark)
 	c.Root().Background(p.BG)
+	if a.locked {
+		a.unlockScreen(c)
+		return
+	}
 	ui.Column(c).Fill().TextColor(p.Text).Children(func() {
 		a.titlebar(c)
 		ui.Row(c).Grow(1).MinHeight(0).FillWidth().Children(func() {
 			a.sidebar(c)
 			ui.Column(c).Grow(1).MinWidth(0).FillHeight().Children(func() {
 				a.tabbar(c)
-				ui.Column(c.Key(a.page)).Grow(1).MinHeight(0).FillWidth().Padding(24, 28).Gap(18).Children(func() {
+				ui.Column(c.Key(a.page)).Grow(1).MinHeight(0).FillWidth().Padding(20, 24).Gap(16).Children(func() {
 					if a.err != "" {
 						a.banner(c, a.err, true)
 					} else if a.notice != "" {
 						a.banner(c, a.notice, false)
-					}
-					if a.locked && a.page != "settings" {
-						a.lockScreen(c)
-						return
 					}
 					switch a.page {
 					case "oss":
@@ -73,70 +74,90 @@ func (a *App) titlebar(c *ui.Context) {
 	if bar.Height > 0 {
 		height = bar.Height
 	}
-	ui.Row(c).Height(height).Shrink(0).FillWidth().Background(p.Sidebar).Border(1, p.Line).Padding(0, max(18, bar.Right+8), 0, max(18, bar.Left+8)).AlignItems(ui.Center).Gap(12).Children(func() {
-		ui.Icon(c, icons.Get("cloud-line")).Size(20, 20).TextColor(p.Accent)
-		ui.Text(c, "YunTools").FontSize(14).FontWeight(650)
-		ui.Text(c, "云资源工作空间").FontSize(11).TextColor(p.Muted)
+	ui.Row(c).Height(height).Shrink(0).FillWidth().Background(p.Sidebar).Border(1, p.Line).Padding(0, max(16, bar.Right+8), 0, max(16, bar.Left+8)).AlignItems(ui.Center).Gap(10).Children(func() {
+		navTile(c, "cloud-line", p.Accent, true)
+		ui.Text(c, "YunTools").FontSize(15).FontWeight(650)
+		ui.Text(c, a.windowContext()).FontSize(11).TextColor(p.Muted)
 		ui.Box(c).Grow(1).Height(max(24, height-4)).DragWindow()
 		if a.busy > 0 {
-			ui.Text(c, "正在同步…").FontSize(11).TextColor(p.Accent)
+			ui.Text(c, "正在处理…").FontSize(11).TextColor(p.Accent)
 		}
-		iconButton(c, "外观切换", map[bool]string{true: "sun-line", false: "moon-line"}[a.dark], false, a.toggleTheme)
+		a.appearanceButton(c)
 		iconButton(c, "打开设置", "settings-3-line", false, func() { a.openPage("settings") })
 	})
 }
+func (a *App) windowContext() string {
+	if a.locked {
+		return "保险库已锁定"
+	}
+	if a.accountID == "" {
+		return "还没有选择账号"
+	}
+	for _, profile := range a.profiles {
+		if profile.ID == a.accountID {
+			name := strings.TrimSpace(profile.Name)
+			if name == "" {
+				name = "未命名账号"
+			}
+			return name + " · " + cloud.ProviderDisplayName(profile.Provider)
+		}
+	}
+	return "云资源"
+}
 func (a *App) sidebar(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	ui.Column(c).Width(222).Shrink(0).FillHeight().Background(p.Sidebar).Border(1, p.Line).Padding(16, 12).Gap(8).Children(func() {
-		ui.Text(c, "工作账号").FontSize(11).TextColor(p.Muted).Padding(0, 8)
-		ui.Column(c).FillWidth().Padding(12).Gap(8).Radius(10).Background(p.Card).Border(1, p.Line).Children(func() {
+	ui.Column(c).Width(232).Shrink(0).FillHeight().Background(p.Sidebar).Border(1, p.Line).Padding(14, 10).Gap(8).Children(func() {
+		ui.Text(c, "当前账号").FontSize(11).TextColor(p.Muted).Padding(0, 8)
+		ui.Column(c).FillWidth().Padding(12).Gap(8).Radius(12).Background(p.Card).Border(1, p.Line).Children(func() {
+			provider := a.currentProvider()
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, icons.Get("cloud-line")).Size(22, 22).TextColor(p.Orange)
-				ui.Text(c, "阿里云").Bold().Grow(1)
-				ui.Text(c, "ALIYUN").FontSize(9).TextColor(p.Muted)
+				navTile(c, "cloud-line", providerTint(p, provider), true)
+				ui.Text(c, a.capabilitySummary()).FontSize(11).TextColor(p.Muted).Grow(1)
 			})
 			if a.locked {
-				ui.Text(c, "账号保险库已锁定").FontSize(11).TextColor(p.Muted)
+				ui.Text(c, "先解锁保险库，再选择账号。").FontSize(11).TextColor(p.Muted)
 			} else if len(a.profiles) == 0 {
-				ui.Text(c, "尚未连接云账号").FontSize(11).TextColor(p.Muted)
+				ui.Text(c, "还没有云账号。添加后即可开始。").FontSize(11).TextColor(p.Muted)
 			} else {
-				labels := make([]string, 0, len(a.profiles))
+				labels := accountMenuLabels(a.profiles)
 				current := ""
-				for _, profile := range a.profiles {
-					label := profile.Name + " · " + profile.ID[:min(6, len(profile.ID))]
-					labels = append(labels, label)
+				for i, profile := range a.profiles {
 					if profile.ID == a.accountID {
-						current = label
+						current = labels[i]
 					}
 				}
 				if ui.Select(c, &current, labels).FillWidth().Label("当前云账号").Changed() {
 					for i, label := range labels {
 						if current == label {
-							a.switchAccount(a.profiles[i].ID)
-							a.refresh()
+							a.selectAccount(a.profiles[i].ID)
 						}
 					}
 				}
-				ui.Text(c, a.region).FontSize(11).TextColor(p.Muted)
+				if a.accountID != "" {
+					ui.Text(c, "默认地域 "+a.regionLabel(a.region)).FontSize(11).TextColor(p.Muted)
+				}
 			}
 		})
-		ui.Box(c).Height(16)
-		for _, item := range []struct{ id, label, icon string }{{"overview", "概览", "dashboard-3-line"}, {"oss", "对象存储", "box-3-line"}, {"whitelist", "访问白名单", "shield-check-line"}, {"dns", "域名解析", "global-line"}, {"certificates", "SSL 证书", "key-2-line"}} {
+		ui.Box(c).Height(8)
+		for _, item := range a.navItems(p) {
 			item := item
-			b := ui.ButtonBase(c.Key(item.id)).Label(item.label).FillWidth().Height(42).Radius(8).Padding(0, 12).AlignItems(ui.Center)
+			available := a.navAvailable(item.id)
+			b := ui.ButtonBase(c.Key(item.id)).Label(item.label).FillWidth().Height(40).Radius(8).Padding(0, 8).AlignItems(ui.Center)
+			if !available {
+				b.Tooltip(cloud.ProviderDisplayName(a.currentProvider()) + "目前只支持对象存储，点进去可以切换账号")
+			}
 			if a.page == item.id {
-				b.Background(p.Accent.Alpha(.16))
+				b.Background(item.tint.Alpha(.14))
 			} else if b.Hovered() {
 				b.Background(p.Field)
 			}
-			color := p.Muted
-			if a.page == item.id {
-				color = p.Accent
-			}
 			b.Children(func() {
-				ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, icons.Get(item.icon)).Size(18, 18).TextColor(color)
-					ui.Text(c, item.label).FontWeight(500).TextColor(map[bool]ui.Color{true: p.Accent, false: p.Text}[a.page == item.id])
+				ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+					navTile(c, item.icon, item.tint, a.page == item.id)
+					ui.Text(c, item.label).FontWeight(500).Grow(1).TextColor(map[bool]ui.Color{true: p.Text, false: p.Muted}[available || a.page == item.id])
+					if !available {
+						ui.Text(c, "暂不可用").FontSize(10).TextColor(p.Muted)
+					}
 				})
 			})
 			if b.Clicked() {
@@ -144,16 +165,12 @@ func (a *App) sidebar(c *ui.Context) {
 			}
 		}
 		ui.Box(c).Grow(1)
-		ui.Column(c).Padding(12).Gap(6).Radius(10).Background(p.Accent.Alpha(.07)).Children(func() {
-			ui.Row(c).Gap(6).Children(func() {
-				ui.Icon(c, icons.Get("shield-check-line")).Size(14, 14).TextColor(p.Accent)
-				ui.Text(c, "凭据本地加密").FontSize(11).TextColor(p.Accent)
-			})
-			ui.Text(c, "密钥由系统钥匙串保护").FontSize(10).TextColor(p.Muted)
+		ui.Box(c).Height(1).FillWidth().Background(p.Line)
+		ui.Row(c).Padding(4, 8).Gap(8).AlignItems(ui.Center).Children(func() {
+			dot(c, map[bool]ui.Color{true: p.Muted, false: p.Green}[a.locked])
+			ui.Text(c, "密钥只保存在这台电脑").FontSize(11).TextColor(p.Muted).Grow(1)
 		})
-		if ui.Button(c, "云账号管理").FillWidth().Radius(8).Clicked() {
-			a.openPage("accounts")
-		}
+		a.navButton(c, p, navItem{id: "accounts", label: "云账号", icon: "cloud-line", tint: p.Accent})
 	})
 }
 func (a *App) tabbar(c *ui.Context) {
@@ -166,12 +183,7 @@ func (a *App) tabbar(c *ui.Context) {
 			}
 			for i, t := range a.tabs {
 				i, t := i, t
-				label := t.Label
-				for _, profile := range a.profiles {
-					if profile.ID == t.AccountID {
-						label += " · " + profile.Name
-					}
-				}
+				label := a.tabLabel(t)
 				row := ui.Row(c.Key("tab:"+t.AccountID+":"+t.Page)).Height(28).Padding(0, 3).Gap(1).AlignItems(ui.Center).Radius(6).Border(1, p.Line)
 				if i == a.activeTab {
 					row.Background(p.Card)
@@ -198,7 +210,7 @@ func (a *App) tabbar(c *ui.Context) {
 					})
 					if b.Clicked() {
 						a.generation++
-						if t.AccountID != "" {
+						if pageUsesAccount(t.Page) && t.AccountID != "" {
 							a.switchAccount(t.AccountID)
 						}
 						a.page = t.Page
@@ -225,14 +237,14 @@ func (a *App) tabbar(c *ui.Context) {
 }
 func (a *App) statusbar(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	ui.Row(c).Height(30).Shrink(0).FillWidth().Background(p.Sidebar).Border(1, p.Line).Padding(0, 16).AlignItems(ui.Center).Gap(8).Children(func() {
-		dot(c, p.Green)
-		state := "保险库已解锁"
+	ui.Row(c).Height(30).Shrink(0).FillWidth().Background(p.Sidebar).Border(1, p.Line).Padding(0, 14).AlignItems(ui.Center).Gap(8).Children(func() {
+		dot(c, map[bool]ui.Color{true: p.Orange, false: p.Green}[a.locked])
+		state := "已解锁"
 		if a.locked {
-			state = "保险库已锁定"
+			state = "已锁定"
 		}
-		ui.Text(c, state).FontSize(10).TextColor(p.Muted)
-		ui.Text(c, fmt.Sprintf("· %d 个云账号", len(a.profiles))).FontSize(10).TextColor(p.Muted)
+		ui.Text(c, state).FontSize(11).TextColor(p.Muted)
+		ui.Text(c, fmt.Sprintf("%d 个账号", len(a.profiles))).FontSize(11).TextColor(p.Muted)
 		ui.Box(c).Grow(1)
 		count := 0
 		if a.jobs != nil {
@@ -242,10 +254,14 @@ func (a *App) statusbar(c *ui.Context) {
 				}
 			}
 		}
-		if ui.Button(c, fmt.Sprintf("任务中心  %d", count)).FontSize(10).Padding(2, 10).Clicked() {
+		label := "打开任务中心"
+		if count > 0 {
+			label = fmt.Sprintf("任务中心 %d", count)
+		}
+		if ui.Button(c, label).FontSize(11).Padding(2, 10).Radius(999).Tooltip("查看上传、下载和后台任务").Clicked() {
 			a.showTasks = !a.showTasks
 		}
-		ui.Text(c, a.versionLabel()).FontSize(10).TextColor(p.Muted)
+		ui.Text(c, a.versionLabel()).FontSize(11).TextColor(p.Muted)
 	})
 }
 func (a *App) banner(c *ui.Context, s string, danger bool) {
@@ -259,29 +275,53 @@ func (a *App) banner(c *ui.Context, s string, danger bool) {
 		iconButton(c, "关闭提示", "close-line", false, func() { a.err = ""; a.notice = "" })
 	})
 }
-func (a *App) lockScreen(c *ui.Context) {
+func (a *App) appearanceButton(c *ui.Context) {
+	iconButton(c, a.appearanceLabel(), map[bool]string{true: "sun-line", false: "moon-line"}[a.dark], false, a.cycleAppearance)
+}
+
+func (a *App) unlockScreen(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	ui.Column(c).Fill().Center().Gap(16).Children(func() {
-		ui.Box(c).Size(76, 76).Radius(22).Background(p.Accent.Alpha(.13)).Center().Children(func() { ui.Icon(c, icons.Get("shield-check-line")).Size(34, 34).TextColor(p.Accent) })
-		ui.Text(c, "你的云账号，安全保存在本机").FontSize(24).FontWeight(650)
-		ui.Text(c, "解锁保险库后，连接账号并开始管理云资源。").TextColor(p.Muted)
-		ui.Text(c, "AccessKey 与证书私钥均加密保存，主密钥由系统钥匙串保护。").FontSize(12).TextColor(p.Muted)
-		if primary(c, "解锁账号保险库", a.busy > 0) {
-			a.async(func(ctx context.Context) (func(), error) {
-				if a.p.Unlock == nil {
-					return nil, fmt.Errorf("系统钥匙串未配置")
-				}
-				s, e := a.p.Unlock()
-				return func() { a.attach(s) }, e
+	bar := c.TitleBar()
+	height := float32(48)
+	if bar.Height > 0 {
+		height = bar.Height
+	}
+	ui.Column(c).Fill().Background(p.BG).TextColor(p.Text).Children(func() {
+		ui.Row(c).Height(height).Shrink(0).FillWidth().Padding(0, max(16, bar.Right+8), 0, max(16, bar.Left+8)).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Grow(1).Height(height).DragWindow()
+			a.appearanceButton(c)
+		})
+		ui.Column(c).Grow(1).FillWidth().AlignItems(ui.Center).Justify(ui.Center).Gap(14).Padding(24).Children(func() {
+			ui.Box(c).Size(72, 72).Radius(20).Background(p.Accent).Center().Children(func() {
+				ui.Icon(c, icons.Get("shield-check-line")).Size(32, 32).TextColor(ui.Hex("#FFFFFF"))
 			})
-		}
+			ui.Text(c, "已保存的账号尚未解锁").FontSize(22).FontWeight(650)
+			ui.Text(c, "密钥仍是加密的。授权系统钥匙串之后，才能查看云账号和管理资源。").MaxWidth(440).FontSize(13).TextColor(p.Muted)
+			ui.Text(c, "当前外观："+a.appearanceLabel()+"。授权页和进入后的主界面使用同一种外观。").MaxWidth(440).FontSize(12).TextColor(p.Muted)
+			label := "授权并解锁"
+			if a.busy > 0 {
+				label = "正在等待授权…"
+			}
+			if primary(c, label, a.busy > 0) {
+				a.async(func(ctx context.Context) (func(), error) {
+					if a.p.Unlock == nil {
+						return nil, fmt.Errorf("系统钥匙串未配置")
+					}
+					s, e := a.p.Unlock()
+					return func() { a.attach(s) }, e
+				})
+			}
+			if a.err != "" {
+				ui.Text(c, a.err).MaxWidth(440).FontSize(12).TextColor(p.Red)
+			}
+		})
 	})
 }
 func (a *App) heading(c *ui.Context, title, subtitle string, actions func()) {
 	p := theme.Colors(a.dark)
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
 		ui.Column(c).Grow(1).Gap(6).Children(func() {
-			ui.Text(c, title).FontSize(24).FontWeight(650)
+			ui.Text(c, title).FontSize(22).FontWeight(650)
 			ui.Text(c, subtitle).FontSize(12).TextColor(p.Muted)
 		})
 		if actions != nil {
@@ -291,7 +331,7 @@ func (a *App) heading(c *ui.Context, title, subtitle string, actions func()) {
 }
 func (a *App) overview(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	a.heading(c, "所有云资源，井然有序。", "在一个原生工作空间中，管理存储、访问权限、域名和证书。", func() {
+	a.heading(c, "从这里开始", "管理存储、访问权限、域名和证书。密钥只保存在这台电脑上。", func() {
 		if primary(c, "添加云账号", false) {
 			a.editAccount(cloud.Account{})
 		}
@@ -317,21 +357,28 @@ func (a *App) overview(c *ui.Context) {
 	})
 	ui.Text(c, "开始工作").FontSize(15).FontWeight(600).Margin(8, 0, 0, 0)
 	ui.Row(c).FillWidth().Gap(14).Children(func() {
-		for _, m := range []struct{ id, title, body, icon string }{{"oss", "对象存储", "浏览存储空间、上传文件\n传输进度与断点续传", "box-3-line"}, {"whitelist", "动态访问白名单", "连接 RDS、Redis 和 ECS\n同步当前公网 IP", "shield-check-line"}, {"dns", "域名与 SSL", "新增解析记录\n一键申请 Let’s Encrypt 证书", "global-line"}} {
+		for _, m := range []struct {
+			id, title, body, icon string
+			tint                  ui.Color
+		}{
+			{"oss", "对象存储", "浏览空间、上传和下载文件。\n阿里云、腾讯云、七牛云都可以。", "box-3-line", p.Orange},
+			{"whitelist", "访问白名单", "把当前公网 IP 放行到数据库或安全组。\n阿里云和腾讯云可用。", "shield-check-line", p.Green},
+			{"dns", "域名与证书", "添加解析记录，或申请证书。\n已有记录不会被修改。", "global-line", ui.Hex("#14A3BE")},
+		} {
 			m := m
-			card(c).Grow(1).Padding(20).Gap(14).Children(func() {
-				ui.Icon(c, icons.Get(m.icon)).Size(28, 28).TextColor(p.Accent)
+			card(c).Grow(1).Padding(18).Gap(12).Children(func() {
+				navTile(c, m.icon, m.tint, true)
 				ui.Text(c, m.title).FontSize(16).FontWeight(600)
 				ui.Text(c, m.body).FontSize(12).TextColor(p.Muted)
-				if ui.Button(c, "打开 "+m.title).Radius(999).AlignSelf(ui.Start).Clicked() {
+				if ui.Button(c, "进入"+m.title).Radius(999).AlignSelf(ui.Start).Clicked() {
 					a.openPage(m.id)
 				}
 			})
 		}
 	})
-	card(c).FillWidth().Padding(18, 20).Gap(8).Children(func() {
-		ui.Text(c, "安全边界，始终明确").FontSize(13).Bold()
-		ui.Text(c, "OSS 删除前再次确认 · DNS 仅新增与查询 · 证书仅清理本工具创建的验证 TXT").FontSize(12).TextColor(p.Muted)
+	card(c).FillWidth().Padding(16, 18).Gap(6).Children(func() {
+		ui.Text(c, "改之前会再问你一次").FontSize(13).Bold()
+		ui.Text(c, "删除文件和移除账号都会先确认。域名记录只增加、不修改。证书清理只动本工具自己创建的验证记录。").FontSize(12).TextColor(p.Muted)
 	})
 }
 func (a *App) empty(c *ui.Context, icon, title, body string) {
@@ -348,9 +395,9 @@ func (a *App) toolbar(c *ui.Context, fn func()) {
 }
 func (a *App) ossPage(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	subtitle := "浏览存储空间，管理文件与文件夹。"
+	subtitle := "先选一个存储空间，再管理里面的文件。"
 	if a.bucket != "" {
-		subtitle = "oss://" + a.bucket + "/" + a.prefix
+		subtitle = "当前位置 " + cloud.ProviderStorageScheme(a.currentProvider()) + "://" + a.bucket + "/" + a.prefix
 	}
 	a.heading(c, "对象存储", subtitle, func() {
 		iconButton(c, "刷新存储", "refresh-line", a.busy > 0, func() { a.generation++; a.refreshOSS(false) })
@@ -376,16 +423,16 @@ func (a *App) ossPage(c *ui.Context) {
 				}
 				a.refreshOSS(false)
 			})
-			if ui.Button(c, "上传文件夹").Clicked() {
+			if ui.Button(c, "上传文件夹").Tooltip("按文件夹里的相对路径上传，同名文件会覆盖").Clicked() {
 				a.pickUploads(true)
 			}
-			if ui.Button(c, "新建文件夹").Clicked() {
+			if ui.Button(c, "新建文件夹").Tooltip("创建一个空文件夹占位").Clicked() {
 				a.newForm("directory", "新建文件夹", map[string]string{"key": a.prefix})
 			}
-			if ui.Button(c, "下载选中").Disabled(len(a.selectedKeys()) == 0).Clicked() {
+			if ui.Button(c, "下载选中").Disabled(len(a.selectedKeys()) == 0).Tooltip("先勾选文件，再下载到本机").Clicked() {
 				a.downloadSelected()
 			}
-			if ui.Button(c, "删除选中").Disabled(len(a.selectedKeys()) == 0).TextColor(p.Red).Clicked() {
+			if ui.Button(c, "删除选中").Disabled(len(a.selectedKeys()) == 0).TextColor(p.Red).Tooltip("删除前会再确认一次").Clicked() {
 				a.requestDelete()
 			}
 		}
@@ -401,12 +448,12 @@ func (a *App) ossPage(c *ui.Context) {
 		}
 	})
 	if a.accountID == "" {
-		a.empty(c, "cloud-line", "连接一个云账号", "添加账号后，即可查看你的 OSS 存储空间。")
+		a.empty(c, "cloud-line", "先连接一个云账号", "添加阿里云、腾讯云或七牛云后，这里会列出存储空间。")
 		return
 	}
 	if a.bucket == "" {
 		if len(a.buckets) == 0 {
-			a.empty(c, "box-3-line", "这里还没有存储空间", "点击刷新获取 Bucket，或创建一个新的存储空间。")
+			a.empty(c, "box-3-line", "还没有存储空间", "点右上角「新建存储空间」，或点刷新图标重新获取。")
 			return
 		}
 		a.bucketTable(c)
@@ -420,9 +467,32 @@ func (a *App) ossPage(c *ui.Context) {
 	a.objectTable(c)
 	a.ossPaginationFooter(c)
 }
+func (a *App) unsupportedFeature(c *ui.Context, icon, title, feature string) {
+	p := theme.Colors(a.dark)
+	providerName := cloud.ProviderDisplayName(a.currentProvider())
+	ui.Column(c).Fill().Center().Gap(12).Children(func() {
+		ui.Icon(c, icons.Get(icon)).Size(42, 42).TextColor(p.Muted)
+		ui.Text(c, fmt.Sprintf("当前云厂商（%s）不支持%s", providerName, title)).FontSize(17).FontWeight(650)
+		ui.Text(c, fmt.Sprintf("%s目前可以管理对象存储（%s）。%s请换到阿里云或腾讯云账号。", providerName, strings.ToUpper(cloud.ProviderStorageScheme(a.currentProvider())), feature)).FontSize(12).TextColor(p.Muted)
+		ui.Row(c).Gap(8).Children(func() {
+			if primary(c, "前往对象存储", false) {
+				a.openPage("oss")
+			}
+			if ui.Button(c, "切换云账号").Radius(999).Clicked() {
+				a.openPage("accounts")
+			}
+		})
+	})
+}
+
 func (a *App) dnsPage(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	a.heading(c, "域名解析", "仅新增与查询。已有解析记录保持不变。", func() {
+	if a.accountID != "" && !cloud.ProviderSupportsDNS(a.currentProvider()) {
+		a.heading(c, "域名解析", "可以添加和查看。已经存在的记录不会被修改或删除。", nil)
+		a.unsupportedFeature(c, "global-line", "域名解析", "域名解析")
+		return
+	}
+	a.heading(c, "域名解析", "可以添加和查看。已经存在的记录不会被修改或删除。", func() {
 		iconButton(c, "刷新域名", "refresh-line", a.busy > 0, func() { a.refreshDNS() })
 		if a.domain == "" {
 			if primary(c, "添加域名", a.accountID == "") {
@@ -451,7 +521,7 @@ func (a *App) dnsPage(c *ui.Context) {
 	}
 	if a.domain == "" {
 		if len(a.domains) == 0 {
-			a.empty(c, "global-line", "管理你的域名解析", "刷新已接入阿里云 DNS 的域名，或添加一个解析域名。")
+			a.empty(c, "global-line", "还没有解析域名", "点右上角添加一个域名，或点刷新图标获取当前账号下已有的域名。")
 			return
 		}
 		domains, total := pagedItems(a, "domains", a.accountID+"/"+a.search, cloud.NewestFirst(a.domains, func(d cloud.Domain) time.Time { return d.Created }), func(d cloud.Domain) bool { return matches(a.search, d.Name) })
@@ -494,7 +564,13 @@ func (a *App) dnsPage(c *ui.Context) {
 }
 func (a *App) whitelistPage(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	a.heading(c, "访问白名单", "RDS、Redis 与 ECS 的访问规则，在这里统一管理。", func() {
+	provider := a.currentProvider()
+	if a.accountID != "" && !cloud.ProviderSupportsWhitelist(provider) {
+		a.heading(c, "访问白名单", "数据库与安全组访问规则，在这里统一管理。", nil)
+		a.unsupportedFeature(c, "shield-check-line", "访问白名单", "访问白名单")
+		return
+	}
+	a.heading(c, "访问白名单", a.whitelistSubtitle(), func() {
 		if primary(c, "检测公网 IP", a.busy > 0) {
 			a.detectIP()
 		}
@@ -516,7 +592,11 @@ func (a *App) whitelistPage(c *ui.Context) {
 	ui.Text(c, "检测来源：myip.ipip.net · IPv4 直连（不使用 HTTP 代理）；VPN / TUN 仍可能影响出口，可手动填写。").FontSize(11).TextColor(p.Muted)
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, "发现资源").Bold()
-		kindNames := map[string]string{"rds": "云数据库 RDS", "redis": "缓存 Redis", "ecs": "服务器安全组 ECS"}
+		kindNames := map[string]string{
+			"rds":   resourceKindNameForProvider(provider, "rds"),
+			"redis": resourceKindNameForProvider(provider, "redis"),
+			"ecs":   resourceKindNameForProvider(provider, "ecs"),
+		}
 		kind := kindNames[a.resourceKind]
 		if ui.Select(c, &kind, []string{kindNames["rds"], kindNames["redis"], kindNames["ecs"]}).Width(170).Changed() {
 			for key, name := range kindNames {
@@ -526,7 +606,7 @@ func (a *App) whitelistPage(c *ui.Context) {
 			}
 			a.resetTargetDiscovery()
 		}
-		regionInput := regionSelect(c, &a.region).Width(260).Label("资源地域").Tooltip("默认使用当前账号保存的地域。请选择资源实际所在地域；不同云产品支持的地域可能不同。")
+		regionInput := regionSelectForProvider(c, provider, &a.region).Width(260).Label("资源地域").Tooltip("默认使用当前账号保存的地域。请选择资源实际所在地域；不同云产品支持的地域可能不同。")
 		if regionInput.Changed() {
 			a.resetTargetDiscovery()
 		}
@@ -580,12 +660,12 @@ func (a *App) whitelistPage(c *ui.Context) {
 					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 						ui.Icon(c, icons.Get("shield-check-line")).Size(20, 20).TextColor(p.Green)
 						ui.Text(c, t.Name).Bold().Grow(1)
-						ui.Text(c, strings.ToUpper(t.Kind)+" · "+resourceRegionName(t.Region)).FontSize(11).TextColor(p.Muted)
+						ui.Text(c, resourceKindNameForProvider(provider, t.Kind)+" · "+resourceRegionNameForProvider(provider, t.Region)).FontSize(11).TextColor(p.Muted)
 					})
 					ui.Text(c, t.ID+"  "+t.Group+"  "+t.Protocol+" "+t.Ports).FontSize(11).TextColor(p.Muted)
 					ui.Text(c, whitelistIPDescription(t)).FontSize(12).TextColor(p.Muted).Selectable()
-					if t.Automatic && t.Kind != "ecs" {
-						ui.Text(c, "自动跟随使用本工具的独立分组，原分组已有规则保留。").FontSize(11).TextColor(p.Muted)
+					if t.Automatic {
+						ui.Text(c, a.whitelistFollowHint(t)).FontSize(11).TextColor(p.Muted)
 					}
 					a.whitelistAutomaticStatus(c, t)
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -619,6 +699,11 @@ func (a *App) whitelistPage(c *ui.Context) {
 }
 func (a *App) certPage(c *ui.Context) {
 	p := theme.Colors(a.dark)
+	if a.accountID != "" && !cloud.ProviderSupportsCertificates(a.currentProvider()) {
+		a.heading(c, "SSL 证书", "通过 Let’s Encrypt DNS 验证，申请与续期域名证书。", nil)
+		a.unsupportedFeature(c, "key-2-line", "SSL 证书", "SSL 证书管理")
+		return
+	}
 	a.heading(c, "SSL 证书", "通过 Let’s Encrypt DNS 验证，申请与续期域名证书。", func() {
 		iconButton(c, "刷新证书", "refresh-line", false, a.refreshCertificates)
 		if primary(c, "申请证书", a.accountID == "") {
@@ -682,7 +767,7 @@ func (a *App) accountsPage(c *ui.Context) {
 		}
 	})
 	if len(a.profiles) == 0 {
-		a.empty(c, "cloud-line", "连接你的第一个账号", "添加阿里云 RAM 用户的 AccessKey，开始管理资源。")
+		a.empty(c, "cloud-line", "连接你的第一个账号", "支持阿里云、腾讯云、七牛云，添加密钥后即可开始管理资源。")
 		return
 	}
 	accountStart, accountEnd := a.pageRange("accounts", "", len(a.profiles))
@@ -695,7 +780,7 @@ func (a *App) accountsPage(c *ui.Context) {
 						ui.Icon(c, icons.Get("cloud-line")).Size(28, 28).TextColor(p.Orange)
 						ui.Column(c).Grow(1).Gap(4).Children(func() {
 							ui.Text(c, profile.Name).FontSize(16).Bold()
-							ui.Text(c, "阿里云 · "+profile.Region).FontSize(12).TextColor(p.Muted)
+							ui.Text(c, cloud.ProviderDisplayName(profile.Provider)+" · "+resourceRegionNameForProvider(profile.Provider, profile.Region)).FontSize(12).TextColor(p.Muted)
 							ui.Text(c, "本机添加（北京时间） "+formatTimestamp(profile.CreatedAt)).FontSize(11).TextColor(p.Muted)
 						})
 						ui.Text(c, "已加密").FontSize(11).TextColor(p.Green)
@@ -720,20 +805,187 @@ func (a *App) accountsPage(c *ui.Context) {
 }
 func (a *App) settingsPage(c *ui.Context) {
 	p := theme.Colors(a.dark)
-	a.heading(c, "设置", "版本更新、工作空间外观与后台运行。", nil)
+	a.heading(c, "设置", "外观、更新，以及后台会在什么时候继续工作。", nil)
 	a.updateSettings(c)
 	card(c).FillWidth().Padding(20).Gap(18).Children(func() {
-		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "深色外观").Grow(1)
-			if ui.Checkbox(c, &a.dark, "启用深色主题").Changed() {
-				a.savePreferences()
+		ui.Text(c, "外观").Bold()
+		ui.Text(c, "跟随系统时，授权页和主界面保持同一种外观。也可以固定为浅色或深色。").FontSize(12).TextColor(p.Muted)
+		appearance := a.appearanceLabel()
+		if ui.Select(c, &appearance, []string{"跟随系统", "浅色", "深色"}).Width(180).Label("外观").Changed() {
+			switch appearance {
+			case "浅色":
+				a.setAppearance(appearanceLight)
+			case "深色":
+				a.setAppearance(appearanceDark)
+			default:
+				a.setAppearance(appearanceAuto)
 			}
-		})
+		}
 		ui.Text(c, "后台任务").Bold()
-		ui.Text(c, "暂停和关闭应用会保留传输断点。重新打开后，在任务中心继续。\n动态白名单每分钟检查一次，自动续期每小时检查一次；均仅在应用运行且保险库解锁时执行。").FontSize(12).TextColor(p.Muted)
+		ui.Text(c, "关掉窗口不会丢掉上传进度。重新打开后，到任务里继续。\n自动加白大约每分钟看一次公网 IP，证书续期大约每小时看一次。应用没开、或保险库还锁着时，都不会在后台运行。").FontSize(12).TextColor(p.Muted)
 		ui.Text(c, "域名操作边界").Bold()
 		ui.Text(c, "普通 DNS 记录只可新增、列出和查询。证书验证记录清理会核对创建归属、记录 ID、名称与内容。").FontSize(12).TextColor(p.Muted)
 	})
+}
+
+type navItem struct {
+	id, label, icon string
+	tint            ui.Color
+}
+
+func (a *App) navItems(p theme.Palette) []navItem {
+	return []navItem{
+		{id: "overview", label: "概览", icon: "dashboard-3-line", tint: p.Accent},
+		{id: "oss", label: "对象存储", icon: "box-3-line", tint: p.Orange},
+		{id: "whitelist", label: "访问白名单", icon: "shield-check-line", tint: p.Green},
+		{id: "dns", label: "域名解析", icon: "global-line", tint: ui.Hex("#14A3BE")},
+		{id: "certificates", label: "SSL 证书", icon: "key-2-line", tint: ui.Hex("#AF52DE")},
+	}
+}
+
+func (a *App) navAvailable(id string) bool {
+	if a.accountID == "" || a.locked {
+		return true
+	}
+	switch id {
+	case "whitelist":
+		return cloud.ProviderSupportsWhitelist(a.currentProvider())
+	case "dns", "certificates":
+		return cloud.ProviderSupportsDNS(a.currentProvider())
+	default:
+		return true
+	}
+}
+
+func (a *App) navButton(c *ui.Context, p theme.Palette, item navItem) {
+	b := ui.ButtonBase(c.Key(item.id)).Label(item.label).FillWidth().Height(40).Radius(8).Padding(0, 8).AlignItems(ui.Center)
+	if a.page == item.id {
+		b.Background(item.tint.Alpha(.14))
+	} else if b.Hovered() {
+		b.Background(p.Field)
+	}
+	b.Children(func() {
+		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+			navTile(c, item.icon, item.tint, a.page == item.id)
+			ui.Text(c, item.label).FontWeight(500).TextColor(p.Text)
+		})
+	})
+	if b.Clicked() {
+		a.openPage(item.id)
+	}
+}
+
+func navTile(c *ui.Context, icon string, tint ui.Color, filled bool) {
+	bg := tint.Alpha(.16)
+	fg := tint
+	if filled {
+		bg = tint
+		fg = ui.Hex("#FFFFFF")
+	}
+	ui.Box(c).Size(22, 22).Shrink(0).Radius(6).Background(bg).Center().Children(func() {
+		ui.Icon(c, icons.Get(icon)).Size(13, 13).TextColor(fg)
+	})
+}
+
+func providerTint(p theme.Palette, provider string) ui.Color {
+	switch cloud.NormalizeProvider(provider) {
+	case cloud.ProviderTencent:
+		return p.Accent
+	case cloud.ProviderQiniu:
+		return ui.Hex("#14A3BE")
+	default:
+		return p.Orange
+	}
+}
+
+func (a *App) capabilitySummary() string {
+	if a.locked || a.accountID == "" {
+		return "阿里云、腾讯云、七牛云"
+	}
+	if cloud.ProviderSupportsDNS(a.currentProvider()) {
+		return "存储、白名单、域名、证书"
+	}
+	return "目前可用对象存储"
+}
+
+func (a *App) accountName(id string) string {
+	for _, profile := range a.profiles {
+		if profile.ID == id {
+			name := strings.TrimSpace(profile.Name)
+			if name == "" {
+				return "未命名"
+			}
+			return name
+		}
+	}
+	return ""
+}
+
+func (a *App) tabLabel(t tab) string {
+	label := t.Label
+	if label == "" {
+		label = pageTitle(t.Page)
+	}
+	if !pageUsesAccount(t.Page) || t.AccountID == "" || !a.tabsUseMultipleAccounts() {
+		return label
+	}
+	if name := a.accountName(t.AccountID); name != "" {
+		return label + " · " + name
+	}
+	return label
+}
+
+func (a *App) tabsUseMultipleAccounts() bool {
+	seen := map[string]bool{}
+	for _, t := range a.tabs {
+		if pageUsesAccount(t.Page) && t.AccountID != "" {
+			seen[t.AccountID] = true
+		}
+	}
+	return len(seen) > 1
+}
+
+func accountMenuLabels(profiles []cloud.Account) []string {
+	base := make([]string, len(profiles))
+	count := map[string]int{}
+	for i, profile := range profiles {
+		base[i] = accountMenuBase(profile)
+		count[base[i]]++
+	}
+	labels := make([]string, len(profiles))
+	for i, profile := range profiles {
+		labels[i] = base[i]
+		if count[base[i]] > 1 {
+			id := profile.ID
+			if len(id) > 4 {
+				id = id[:4]
+			}
+			labels[i] += " · " + id
+		}
+	}
+	return labels
+}
+
+func accountMenuBase(profile cloud.Account) string {
+	name := strings.TrimSpace(profile.Name)
+	if name == "" {
+		name = "未命名"
+	}
+	return name + " · " + cloud.ProviderDisplayName(profile.Provider)
+}
+
+func (a *App) whitelistSubtitle() string {
+	if a.currentProvider() == cloud.ProviderTencent {
+		return "把当前 IP 放进已绑定的安全组。数据库和 Redis 需要先在腾讯云绑定安全组。"
+	}
+	return "把当前 IP 放行到 RDS、Redis 或安全组。其他已有规则会保留。"
+}
+
+func (a *App) whitelistFollowHint(t cloud.Target) string {
+	if a.currentProvider() == cloud.ProviderTencent || t.Kind == "ecs" {
+		return "开启后会先确认新 IP 已生效，再清理本工具添加的旧规则。其他规则保留。"
+	}
+	return "开启后使用本工具自己的白名单分组，原来分组里的规则会保留。"
 }
 
 func iconButton(c *ui.Context, label, icon string, disabled bool, fn func()) {

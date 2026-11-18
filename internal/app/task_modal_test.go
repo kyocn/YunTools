@@ -28,7 +28,7 @@ func TestTaskCenterModalKeepsPageSizeAndShowsMoreRows(t *testing.T) {
 			if !ok {
 				t.Fatal("missing underlying bucket footer")
 			}
-			if err := tt.Click("任务中心  0"); err != nil {
+			if err := tt.Click("打开任务中心"); err != nil {
 				t.Fatal(err)
 			}
 			tt.Frame()
@@ -63,7 +63,7 @@ func TestTaskCenterModalKeepsPageSizeAndShowsMoreRows(t *testing.T) {
 			if closed.Y != before.Y {
 				t.Fatal("close changed page size")
 			}
-			if err := tt.Click("任务中心  0"); err != nil {
+			if err := tt.Click("打开任务中心"); err != nil {
 				t.Fatal(err)
 			}
 			tt.Frame()

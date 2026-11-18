@@ -4,17 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"time"
 	"yuntools/internal/certificates"
 	"yuntools/internal/cloud"
 	"yuntools/internal/tasks"
 )
 
+const (
+	appearanceAuto  = "auto"
+	appearanceLight = "light"
+	appearanceDark  = "dark"
+)
+
 type preferences struct {
-	Dark      bool
-	Tabs      []tab
-	Active    int
-	AutoRenew map[string]bool
+	Dark       bool
+	Tabs       []tab
+	Active     int
+	AutoRenew  map[string]bool
+	Appearance string
 }
 
 func (a *App) loadPreferences() error {
@@ -30,7 +39,10 @@ func (a *App) loadPreferences() error {
 	if e = json.Unmarshal(b, &p); e != nil {
 		return e
 	}
-	a.dark = p.Dark
+	if validAppearance(p.Appearance) {
+		a.appearance = p.Appearance
+		a.saveAppearanceFile()
+	}
 	a.autoRenew = p.AutoRenew
 	if a.autoRenew == nil {
 		a.autoRenew = map[string]bool{}
@@ -54,7 +66,7 @@ func (a *App) savePreferences() {
 	if a.store == nil || a.locked {
 		return
 	}
-	b, e := json.Marshal(preferences{a.dark, a.tabs, a.activeTab, a.autoRenew})
+	b, e := json.Marshal(preferences{Dark: a.dark, Tabs: a.tabs, Active: a.activeTab, AutoRenew: a.autoRenew, Appearance: a.appearance})
 	if e == nil {
 		e = a.store.Put("preferences/v1", b)
 	}
@@ -62,7 +74,82 @@ func (a *App) savePreferences() {
 		a.err = "无法保存设置：" + e.Error()
 	}
 }
-func (a *App) toggleTheme() { a.dark = !a.dark; a.savePreferences() }
+func validAppearance(mode string) bool {
+	return mode == appearanceAuto || mode == appearanceLight || mode == appearanceDark
+}
+
+func (a *App) resolvedDark(systemDark bool) bool {
+	switch a.appearance {
+	case appearanceLight:
+		return false
+	case appearanceDark:
+		return true
+	default:
+		return systemDark
+	}
+}
+
+func (a *App) loadAppearanceFile() {
+	a.appearance = appearanceAuto
+	if a.p.DataDir == "" {
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(a.p.DataDir, "appearance.json"))
+	if err != nil {
+		return
+	}
+	var saved struct{ Appearance string }
+	if json.Unmarshal(b, &saved) == nil && validAppearance(saved.Appearance) {
+		a.appearance = saved.Appearance
+	}
+}
+
+func (a *App) saveAppearanceFile() {
+	if a.p.DataDir == "" {
+		return
+	}
+	b, err := json.Marshal(struct {
+		Appearance string `json:"appearance"`
+	}{a.appearance})
+	if err != nil {
+		return
+	}
+	if os.MkdirAll(a.p.DataDir, 0700) != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(a.p.DataDir, "appearance.json"), b, 0600)
+}
+
+func (a *App) setAppearance(mode string) {
+	if !validAppearance(mode) {
+		return
+	}
+	a.appearance = mode
+	a.saveAppearanceFile()
+	a.savePreferences()
+}
+
+func (a *App) cycleAppearance() {
+	switch a.appearance {
+	case appearanceLight:
+		a.setAppearance(appearanceDark)
+	case appearanceDark:
+		a.setAppearance(appearanceAuto)
+	default:
+		a.setAppearance(appearanceLight)
+	}
+}
+
+func (a *App) appearanceLabel() string {
+	switch a.appearance {
+	case appearanceLight:
+		return "浅色"
+	case appearanceDark:
+		return "深色"
+	default:
+		return "跟随系统"
+	}
+}
 func (a *App) toggleRenew(c certificates.Certificate) {
 	key := c.AccountID + "/" + c.ID
 	if a.autoRenew == nil {
